@@ -25,7 +25,7 @@ class Screen:
         try:
             subprocess.run(["wlr-randr", "--output", "HDMI-A-2", state], env=env, check=True)
             self.on = status
-            [self.add_listener(listener) for listener in self.__listeners]
+            self._notify_listeners()
             logging.info(f"screen is {state}")
         except Exception as e:
             logging.warning(f"Error: {e}")

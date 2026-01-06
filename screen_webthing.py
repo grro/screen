@@ -19,7 +19,7 @@ class ScreenThing(Thing):
             'urn:dev:ops:screen-1',
             'screen' + name,
             ['MultiLevelSensor'],
-            "screeen"
+            "screen"
         )
         self.ioloop = tornado.ioloop.IOLoop.current()
         self.screen = screen
