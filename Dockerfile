@@ -1,6 +1,6 @@
 FROM python:3-alpine
 
-ENV port 8031
+ENV port 8030
 ENV name ?
 
 RUN apk update && apk add --no-cache wlr-randr
