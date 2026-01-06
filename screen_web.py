@@ -14,18 +14,19 @@ class SimpleRequestHandler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        screen: Screen = self.server.screen
         parsed_url = urlparse(self.path)
         query_params = parse_qs(parsed_url.query)
         if 'on' in query_params:
             val = query_params['on'][0].lower()
             on_state = val in ['true', '1', 'on']
             try:
-                self.server.screen.set_screen_power(on_state)
-                self._send_json(200, {"status": "success", "screen_on": self.server.screen.on})
+                screen.set_screen_power(on_state)
+                self._send_json(200, {"status": "success", "screen_on": screen.on})
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
         else:
-            self._send_json(200, {"screen_on": self.server.screen.on})
+            self._send_json(200, {"screen_on": screen.on})
 
     def _send_json(self, status, data: Dict[str, Any]):
         self.send_response(status)
