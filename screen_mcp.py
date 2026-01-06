@@ -10,6 +10,21 @@ class ScreenMCPServer(MCPServer):
         self.screen = screen
 
         @self.mcp.tool()
+        def get_screen_power() -> str:
+            """
+            Retrieves the current power status of the screen.
+
+            Returns:
+                str: A message stating whether the screen is currently on or off.
+            """
+            try:
+                state_str = "on" if self.screen.on else "off"
+                return f"The screen is currently {state_str}."
+            except Exception as e:
+                return f"Error retrieving screen state: {str(e)}"
+
+
+        @self.mcp.tool()
         def set_screen_power(on: bool) -> str:
             """
             Controls the power state of the screen.

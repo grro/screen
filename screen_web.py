@@ -21,11 +21,11 @@ class SimpleRequestHandler(BaseHTTPRequestHandler):
             on_state = val in ['true', '1', 'on']
             try:
                 self.server.screen.set_screen_power(on_state)
-                self._send_json(200, {"status": "success", "screen_on": on_state})
+                self._send_json(200, {"status": "success", "screen_on": self.server.screen.on})
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
         else:
-            self._send_json(400, {"error": "Parameter 'on' is missing"})
+            self._send_json(200, {"screen_on": self.server.screen.on})
 
     def _send_json(self, status, data: Dict[str, Any]):
         self.send_response(status)
