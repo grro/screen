@@ -1,6 +1,6 @@
 FROM python:3-alpine
 
-ENV port 8343
+ENV port 8031
 ENV name ?
 
 RUN cd /etc
