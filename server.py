@@ -12,8 +12,8 @@ from screen_mcp import ScreenMCPServer
 
 def run_server(port: int, name: str):
     screen = Screen()
-    web_server = ScreenWebServer(screen, name, port)
-    mcp_server = ScreenMCPServer(screen, name, port+1)
+    web_server = ScreenWebServer(screen=screen, port=port)
+    mcp_server = ScreenMCPServer(screen=screen, name=name, port=port+1)
     try:
         web_server.start()
         mcp_server.start()
