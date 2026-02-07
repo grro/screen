@@ -54,6 +54,8 @@ class Screen:
         if len(self.start_script_path) > 0:
             try:
                 env = os.environ.copy()
+                env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+                env["WAYLAND_DISPLAY"] = "wayland-0"
                 subprocess.Popen([self.start_script_path], env=env)
                 logging.info("Start script initiated")
             except Exception as e:
@@ -63,6 +65,8 @@ class Screen:
         if len(self.stop_script_path) > 0:
             try:
                 env = os.environ.copy()
+                env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+                env["WAYLAND_DISPLAY"] = "wayland-0"
                 subprocess.run([self.stop_script_path], env=env)
                 logging.info("Stop script executed successfully")
             except Exception as e:
