@@ -46,7 +46,7 @@ class ScreenThing(Thing):
 
 
 def run_server(port: int, name: str, start_script_path: str, stop_script_path: str):
-    screen = Screen(start_script_path, start_script_path)
+    screen = Screen(start_script_path, stop_script_path)
     server = WebThingServer(SingleThing(ScreenThing(name, screen)), port=port, disable_host_validation=True)
     web_server = ScreenWebServer(screen=screen, port=port+1)
     mcp_server = ScreenMCPServer(screen=screen, name=name, port=port+2)

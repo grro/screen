@@ -6,15 +6,21 @@ import logging
 class Screen:
 
     def __init__(self, start_script_path: str = None, stop_script_path: str = None):
-        self.start_script_path = start_script_path
-        self.stop_script_path = stop_script_path
+        self.start_script_path = start_script_path.strip() if start_script_path else None
+        self.stop_script_path = stop_script_path.strip() if stop_script_path else None
         self.on = True
         self.set_screen_power(self.on)
         self.__listeners = set()
-        if len(self.start_script_path) > 0:
-            logging.info("start script path: " + str(self.start_script_path))
-        if len(self.stop_script_path) > 0:
-            logging.info("stop script path: " + str(self.stop_script_path))
+        if self.start_script_path is not None and len(self.start_script_path) > 0:
+            if self.start_script_path and not os.path.isfile(self.start_script_path):
+                logging.error(f"start script not found {self.start_script_path}")
+            else:
+                logging.info("start script path: " + str(self.start_script_path))
+        if self.stop_script_path is not None and len(self.stop_script_path) > 0:
+            if self.stop_script_path and not os.path.isfile(self.stop_script_path):
+                logging.error(f"stop script not found {self.stop_script_path}")
+            else:
+                logging.info("stop script path: " + str(self.stop_script_path))
 
     def add_listener(self, listener):
         self.__listeners.add(listener)
