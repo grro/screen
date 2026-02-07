@@ -40,7 +40,7 @@ class Screen:
     def __on_start(self):
         if len(self.start_script_path) > 0:
             try:
-                subprocess.Popen([self.start_script_path], env=self.env)
+                subprocess.Popen([self.start_script_path])
                 logging.info("Start script initiated")
             except Exception as e:
                 logging.warning(f"Error executing start script: {e}")
@@ -48,7 +48,7 @@ class Screen:
     def __on_stop(self):
         if len(self.stop_script_path) > 0:
             try:
-                subprocess.run([self.stop_script_path], env=self.env, check=True)
+                subprocess.run([self.stop_script_path])
                 logging.info("Stop script executed successfully")
             except Exception as e:
                 logging.warning(f"Error executing stop script: {e}")
