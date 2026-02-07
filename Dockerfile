@@ -5,7 +5,7 @@ ENV name ?
 ENV start_script ?
 ENV stop_script ?
 
-RUN apk update && apk add --no-cache wlr-randr
+RUN apk update && apk add --no-cache wlr-randr bash
 
 RUN cd /etc
 RUN mkdir app

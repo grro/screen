@@ -6,11 +6,11 @@ import logging
 class Screen:
 
     def __init__(self, start_script_path: str = None, stop_script_path: str = None):
+        self.__listeners = set()
         self.start_script_path = start_script_path.strip() if start_script_path else None
         self.stop_script_path = stop_script_path.strip() if stop_script_path else None
         self.on = True
         self.set_screen_power(self.on)
-        self.__listeners = set()
         if self.start_script_path is not None and len(self.start_script_path) > 0:
             if self.start_script_path and not os.path.isfile(self.start_script_path):
                 logging.error(f"start script not found {self.start_script_path}")
