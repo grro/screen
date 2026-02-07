@@ -9,7 +9,7 @@ class Screen:
         self.__listeners = set()
         self.start_script_path = start_script_path.strip() if start_script_path else None
         self.stop_script_path = stop_script_path.strip() if stop_script_path else None
-        self.on = True
+        self.on = False
         self.set_screen_power(self.on)
         if self.start_script_path is not None and len(self.start_script_path) > 0:
             if self.start_script_path and not os.path.isfile(self.start_script_path):
