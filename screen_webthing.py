@@ -45,8 +45,8 @@ class ScreenThing(Thing):
         self.on.notify_of_external_update(self.screen.on)
 
 
-def run_server(port: int, name: str):
-    screen = Screen()
+def run_server(port: int, name: str, start_script_path: str, stop_script_path: str):
+    screen = Screen(start_script_path, start_script_path)
     server = WebThingServer(SingleThing(ScreenThing(name, screen)), port=port, disable_host_validation=True)
     web_server = ScreenWebServer(screen=screen, port=port+1)
     mcp_server = ScreenMCPServer(screen=screen, name=name, port=port+2)
@@ -68,7 +68,7 @@ if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s %(name)-20s: %(levelname)-8s %(message)s', level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S')
     logging.getLogger('tornado.access').setLevel(logging.ERROR)
     logging.getLogger('urllib3.connectionpool').setLevel(logging.WARNING)
-    run_server(int(sys.argv[1]), sys.argv[2])
+    run_server(int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4])
 
 
 # test curl
