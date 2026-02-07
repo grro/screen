@@ -11,6 +11,10 @@ class Screen:
         self.on = True
         self.set_screen_power(self.on)
         self.__listeners = set()
+        if len(self.start_script_path) > 0:
+            logging.info("start script path: " + str(self.start_script_path))
+        if len(self.stop_script_path) > 0:
+            logging.info("stop script path: " + str(self.stop_script_path))
 
     def add_listener(self, listener):
         self.__listeners.add(listener)
@@ -23,9 +27,11 @@ class Screen:
         env["XDG_RUNTIME_DIR"] = "/run/user/1000"
         env["WAYLAND_DISPLAY"] = "wayland-0"
 
+
         state = "--on" if status else "--off"
         try:
             subprocess.run(["wlr-randr", "--output", "HDMI-A-2", state], env=env, check=True)
+            is_updated = self.on != status
             self.on = status
             self._notify_listeners()
             logging.info(f"screen is {state}")
@@ -33,7 +39,8 @@ class Screen:
             if self.on:
                 self.__on_start()
             else:
-                self.__on_stop()
+                if is_updated:
+                    self.__on_stop()
         except Exception as e:
             logging.warning(f"Error: {e}")
 
