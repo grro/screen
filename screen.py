@@ -1,6 +1,8 @@
 import os
 import subprocess
 import logging
+from time import sleep
+from threading import Thread
 
 
 class Screen:
@@ -21,6 +23,7 @@ class Screen:
                 logging.error(f"stop script not found {self.stop_script_path}")
             else:
                 logging.info("stop script path: " + str(self.stop_script_path))
+        Thread(target=self.__on_init, daemon=True).start()
 
     def add_listener(self, listener):
         self.__listeners.add(listener)
@@ -28,7 +31,11 @@ class Screen:
     def _notify_listeners(self):
         [listener() for listener in self.__listeners]
 
-    def set_screen_power(self, status: bool):
+    def __on_init(self):
+        sleep(90)
+        self.set_screen_power(True)
+
+    def set_screen_power(self, status: bool, force: bool = True):
         env = os.environ.copy()
         env["XDG_RUNTIME_DIR"] = "/run/user/1000"
         env["WAYLAND_DISPLAY"] = "wayland-0"
@@ -45,7 +52,7 @@ class Screen:
             if self.on:
                 self.__on_start()
             else:
-                if is_updated:
+                if is_updated or force:
                     self.__on_stop()
         except Exception as e:
             logging.warning(f"Error: {e}")
