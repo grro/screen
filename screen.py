@@ -35,25 +35,21 @@ class Screen:
         sleep(90)
         self.set_screen_power(True)
 
-    def set_screen_power(self, status: bool, force: bool = True):
+    def set_screen_power(self, status: bool):
         env = os.environ.copy()
         env["XDG_RUNTIME_DIR"] = "/run/user/1000"
         env["WAYLAND_DISPLAY"] = "wayland-0"
 
-
         state = "--on" if status else "--off"
         try:
             subprocess.run(["wlr-randr", "--output", "HDMI-A-2", state], env=env, check=True)
-            is_updated = self.on != status
             self.on = status
             self._notify_listeners()
-            logging.info(f"screen is {state}")
 
             if self.on:
                 self.__on_start()
             else:
-                if is_updated or force:
-                    self.__on_stop()
+                self.__on_stop()
         except Exception as e:
             logging.warning(f"Error: {e}")
 
@@ -63,10 +59,13 @@ class Screen:
                 env = os.environ.copy()
                 env["XDG_RUNTIME_DIR"] = "/run/user/1000"
                 env["WAYLAND_DISPLAY"] = "wayland-0"
+                logging.info("Screen activated. Executing " + self.start_script_path)
                 subprocess.Popen([self.start_script_path], env=env)
-                logging.info("Start script initiated")
             except Exception as e:
                 logging.warning(f"Error executing start script: {e}")
+        else:
+            logging.info("Screen activated")
+
 
     def __on_stop(self):
         if len(self.stop_script_path) > 0:
@@ -74,8 +73,9 @@ class Screen:
                 env = os.environ.copy()
                 env["XDG_RUNTIME_DIR"] = "/run/user/1000"
                 env["WAYLAND_DISPLAY"] = "wayland-0"
+                logging.info("Screen deactivated. Executing " + self.stop_script_path)
                 subprocess.run([self.stop_script_path], env=env)
-                logging.info("Stop script executed successfully")
             except Exception as e:
                 logging.warning(f"Error executing stop script: {e}")
-        pass
+        else:
+            logging.info("Screen deactivated")
