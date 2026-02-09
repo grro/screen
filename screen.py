@@ -3,6 +3,41 @@ import subprocess
 import logging
 from time import sleep
 from threading import Thread
+from evdev import InputDevice, ecodes
+
+
+class TouchListener:
+    def __init__(self, device_path, on_touch_callback):
+        self.device_path = device_path
+        self.callback = on_touch_callback
+        self.running = False
+        self.thread = None
+
+    def start(self):
+        self.running = True
+        self.thread = Thread(target=self._listen_loop, daemon=True)
+        self.thread.start()
+        print(f"[TouchListener] listen on: {self.device_path}")
+
+    def stop(self):
+        self.running = False
+
+    def _listen_loop(self):
+        try:
+            device = InputDevice(self.device_path)
+
+            for event in device.read_loop():
+                if not self.running:
+                    break
+
+                if event.type == ecodes.EV_KEY or event.type == ecodes.EV_ABS:
+                    self.callback()
+
+        except FileNotFoundError:
+            print(f"[TouchListener] CRITICAL: Device {self.device_path} not found")
+        except Exception as e:
+            print(f"[TouchListener] error: {e}")
+
 
 
 class Screen:
@@ -23,6 +58,8 @@ class Screen:
                 logging.error(f"stop script not found {self.stop_script_path}")
             else:
                 logging.info("stop script path: " + str(self.stop_script_path))
+
+        TouchListener(device_path="/dev/input/event0", on_touch_callback=lambda x: self.set_screen_power(True)).start()
         Thread(target=self.__on_init, daemon=True).start()
 
     def add_listener(self, listener):
