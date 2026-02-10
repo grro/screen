@@ -78,22 +78,26 @@ class Screen:
         sleep(90)
         self.set_screen_power(True, reason=" Reason: initial activation after 90s")
 
-    def set_screen_power(self, status: bool, force: bool = False, reason: str = ""):
+    def set_screen_power(self, on: bool, force: bool = False, reason: str = ""):
         env = os.environ.copy()
         env["XDG_RUNTIME_DIR"] = "/run/user/1000"
         env["WAYLAND_DISPLAY"] = "wayland-0"
 
-        if force or self.on != status:
-            state = "--on" if status else "--off"
+        if force or self.on != on:
             try:
-                subprocess.run(["wlr-randr", "--output", "HDMI-A-2", state], env=env, check=True)
-                self.on = status
-                self._notify_listeners()
-
-                if self.on:
+                if on:
                     self.__on_start(reason)
                 else:
                     self.__on_stop(reason)
+            except Exception as e:
+                logging.warning(f"Error executing scripts: {e}")
+
+            try:
+                state = "--on" if on else "--off"
+                subprocess.run(["wlr-randr", "--output", "HDMI-A-2", state], env=env, check=True)
+                self.on = on
+                self._notify_listeners()
+
             except Exception as e:
                 logging.warning(f"Error: {e}")
 
