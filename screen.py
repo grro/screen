@@ -19,7 +19,7 @@ class TouchListener:
         self.running = True
         self.thread = Thread(target=self._listen_loop, daemon=True)
         self.thread.start()
-        print(f"[TouchListener] listen on: {self.device_path}")
+        logging.info(f"[TouchListener] listen on: {self.device_path}")
 
     def stop(self):
         self.running = False
@@ -38,9 +38,9 @@ class TouchListener:
                         self.callback()
                         self.last_touch = datetime.now()
         except FileNotFoundError:
-            print(f"[TouchListener] CRITICAL: Device {self.device_path} not found")
+            logging.warning(f"[TouchListener] CRITICAL: Device {self.device_path} not found")
         except Exception as e:
-            print(f"[TouchListener] error: {e}")
+            logging.warning(f"[TouchListener] error: {e}")
 
 
 
