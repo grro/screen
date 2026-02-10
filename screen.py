@@ -34,6 +34,7 @@ class TouchListener:
 
                 if event.type == ecodes.EV_KEY or event.type == ecodes.EV_ABS:
                     if datetime.now() - self.last_touch > timedelta(seconds=5):
+                        logging.info(f"[TouchListener] touch detected")
                         self.callback()
                         self.last_touch = datetime.now()
         except FileNotFoundError:
