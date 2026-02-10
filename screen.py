@@ -95,6 +95,7 @@ class Screen:
             try:
                 state = "--on" if on else "--off"
                 subprocess.run(["wlr-randr", "--output", "HDMI-A-2", state], env=env, check=True)
+                logging.info(f"Screen power set to {'ON' if on else 'OFF'}")
                 self.on = on
                 self._notify_listeners()
 
@@ -107,12 +108,10 @@ class Screen:
                 env = os.environ.copy()
                 env["XDG_RUNTIME_DIR"] = "/run/user/1000"
                 env["WAYLAND_DISPLAY"] = "wayland-0"
-                logging.info("Screen activated. Executing " + self.start_script_path + " " + reason)
+                logging.info("Executing " + self.start_script_path + " " + reason)
                 subprocess.Popen([self.start_script_path], env=env)
             except Exception as e:
                 logging.warning(f"Error executing start script: {e}")
-        else:
-            logging.info("Screen activated " + reason)
 
 
     def __on_stop(self, reason: str):
@@ -121,9 +120,7 @@ class Screen:
                 env = os.environ.copy()
                 env["XDG_RUNTIME_DIR"] = "/run/user/1000"
                 env["WAYLAND_DISPLAY"] = "wayland-0"
-                logging.info("Screen deactivated. Executing " + self.stop_script_path + " " + reason)
+                logging.info("Executing " + self.stop_script_path + " " + reason)
                 subprocess.run([self.stop_script_path], env=env)
             except Exception as e:
                 logging.warning(f"Error executing stop script: {e}")
-        else:
-            logging.info("Screen deactivated " + reason)
