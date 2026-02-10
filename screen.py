@@ -76,7 +76,7 @@ class Screen:
         [listener() for listener in self.__listeners]
 
     def __on_init(self):
-        sleep(90)
+        self.__restart_browser()
         self.set_screen_power(True, reason=" Reason: initial activation after 90s")
 
     def set_screen_power(self, on: bool, force: bool = False, reason: str = ""):
@@ -97,13 +97,16 @@ class Screen:
 
     def __auto_restart(self):
         while True:
-            try:
-                sleep(30*60)
-                if not self.on:
-                    self.__on_stop_browser()
-                    self.__on_start_browser()
-            except Exception as e:
-                logging.warning(f"Error during auto restart: {e}")
+            sleep(30*60)
+            if not self.on:
+                self.__restart_browser()
+
+    def __restart_browser(self):
+        try:
+            self.__on_stop_browser()
+            self.__on_start_browser()
+        except Exception as e:
+            logging.warning(f"Error during browser restart: {e}")
 
     def __on_start_browser(self):
         if len(self.start_script_path) > 0:
