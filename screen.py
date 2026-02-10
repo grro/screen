@@ -62,8 +62,11 @@ class Screen:
                 logging.error(f"stop script not found {self.stop_script_path}")
             else:
                 logging.info("stop script path: " + str(self.stop_script_path))
-        TouchListener(device_path="/dev/input/event0", on_touch_callback=lambda x: self.set_screen_power(True, reason="touch")).start()
+
         Thread(target=self.__on_init, daemon=True).start()
+        self.touch_listener = TouchListener(device_path="/dev/input/event0",
+                                            on_touch_callback=lambda: self.set_screen_power(True, reason="Reason: touch detected"))
+        self.touch_listener.start()
 
     def add_listener(self, listener):
         self.__listeners.add(listener)
@@ -73,7 +76,7 @@ class Screen:
 
     def __on_init(self):
         sleep(90)
-        self.set_screen_power(True)
+        self.set_screen_power(True, reason=" Reason: initial activation after 90s")
 
     def set_screen_power(self, status: bool, force: bool = False, reason: str = ""):
         env = os.environ.copy()
