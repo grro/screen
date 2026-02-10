@@ -37,7 +37,7 @@ class ScreenMCPServer(MCPServer):
             """
             try:
                 # Using self.screen to ensure we reference the instance variable
-                self.screen.set_screen_power(on)
+                self.screen.set_screen_power(on, force=True)
                 state_str = "on" if on else "off"
                 return f"Screen successfully turned {state_str}."
             except Exception as e:

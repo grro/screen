@@ -21,7 +21,7 @@ class SimpleRequestHandler(BaseHTTPRequestHandler):
             val = query_params['on'][0].lower()
             on_state = val in ['true', '1', 'on']
             try:
-                screen.set_screen_power(on_state)
+                screen.set_screen_power(on_state, force=True)
                 self._send_json(200, {"status": "success", "screen_on": screen.on})
             except Exception as e:
                 self._send_json(500, {"error": str(e)})

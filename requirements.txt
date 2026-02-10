@@ -2,3 +2,4 @@ requests>=2.31.0
 redzoo>=0.3.7
 mcp>=0.18.0
 webthing>=0.15.0
+evdev>=1.9.3
