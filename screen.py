@@ -64,6 +64,7 @@ class Screen:
                 logging.info("stop script path: " + str(self.stop_script_path))
 
         Thread(target=self.__on_init, daemon=True).start()
+        Thread(target=self.__auto_restart, daemon=True).start()
         self.touch_listener = TouchListener(device_path="/dev/input/event0",
                                             on_touch_callback=lambda: self.set_screen_power(True, reason="Reason: touch detected"))
         self.touch_listener.start()
@@ -85,14 +86,6 @@ class Screen:
 
         if force or self.on != on:
             try:
-                if on:
-                    self.__on_start(reason)
-                else:
-                    self.__on_stop(reason)
-            except Exception as e:
-                logging.warning(f"Error executing scripts: {e}")
-
-            try:
                 state = "--on" if on else "--off"
                 subprocess.run(["wlr-randr", "--output", "HDMI-A-2", state], env=env, check=True)
                 logging.info(f"Screen power set to {'ON' if on else 'OFF'}")
@@ -102,19 +95,29 @@ class Screen:
             except Exception as e:
                 logging.warning(f"Error: {e}")
 
-    def __on_start(self, reason: str):
+    def __auto_restart(self):
+        while True:
+            try:
+                sleep(30*60)
+                if not self.on:
+                    self.__on_stop_browser()
+                    self.__on_start_browser()
+            except Exception as e:
+                logging.warning(f"Error during auto restart: {e}")
+
+    def __on_start_browser(self):
         if len(self.start_script_path) > 0:
             try:
                 env = os.environ.copy()
                 env["XDG_RUNTIME_DIR"] = "/run/user/1000"
                 env["WAYLAND_DISPLAY"] = "wayland-0"
-                logging.info("Executing " + self.start_script_path + " " + reason)
+                logging.info("Executing " + self.start_script_path)
                 subprocess.Popen([self.start_script_path], env=env)
             except Exception as e:
                 logging.warning(f"Error executing start script: {e}")
 
 
-    def __on_stop(self, reason: str):
+    def __on_stop_browser(self):
         if len(self.stop_script_path) > 0:
             try:
                 env = os.environ.copy()
