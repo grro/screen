@@ -3,44 +3,6 @@ import subprocess
 import logging
 from time import sleep
 from threading import Thread
-from datetime import datetime, timedelta
-from evdev import InputDevice, ecodes
-
-
-class TouchListener:
-    def __init__(self, device_path, on_touch_callback):
-        self.device_path = device_path
-        self.callback = on_touch_callback
-        self.running = False
-        self.thread = None
-        self.last_touch = datetime.now()
-
-    def start(self):
-        self.running = True
-        self.thread = Thread(target=self._listen_loop, daemon=True)
-        self.thread.start()
-        logging.info(f"[TouchListener] listen on: {self.device_path}")
-
-    def stop(self):
-        self.running = False
-
-    def _listen_loop(self):
-        try:
-            device = InputDevice(self.device_path)
-
-            for event in device.read_loop():
-                if not self.running:
-                    break
-
-                if event.type == ecodes.EV_KEY or event.type == ecodes.EV_ABS:
-                    if datetime.now() - self.last_touch > timedelta(seconds=5):
-                        logging.info(f"[TouchListener] touch detected")
-                        self.callback()
-                        self.last_touch = datetime.now()
-        except FileNotFoundError:
-            logging.warning(f"[TouchListener] CRITICAL: Device {self.device_path} not found")
-        except Exception as e:
-            logging.warning(f"[TouchListener] error: {e}")
 
 
 
@@ -65,8 +27,6 @@ class Screen:
 
         Thread(target=self.__on_init, daemon=True).start()
         Thread(target=self.__auto_restart, daemon=True).start()
-        self.touch_listener = TouchListener(device_path="/dev/input/event0",
-                                            on_touch_callback=lambda: self.set_screen_power(True, reason="Reason: touch detected"))
         self.touch_listener.start()
 
     def add_listener(self, listener):
