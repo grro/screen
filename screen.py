@@ -27,7 +27,6 @@ class Screen:
 
         Thread(target=self.__on_init, daemon=True).start()
         Thread(target=self.__auto_restart, daemon=True).start()
-        self.touch_listener.start()
 
     def add_listener(self, listener):
         self.__listeners.add(listener)
