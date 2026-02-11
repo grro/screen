@@ -35,10 +35,12 @@ class Screen:
         [listener() for listener in self.__listeners]
 
     def __on_init(self):
+        sleep(90)
+        logging.info("late initialization of screen")
         self.__restart_browser()
-        self.set_screen_power(True, reason=" Reason: initial activation after 90s")
+        self.set_screen_power(True)
 
-    def set_screen_power(self, on: bool, force: bool = False, reason: str = ""):
+    def set_screen_power(self, on: bool, force: bool = False):
         env = os.environ.copy()
         env["XDG_RUNTIME_DIR"] = "/run/user/1000"
         env["WAYLAND_DISPLAY"] = "wayland-0"
