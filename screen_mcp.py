@@ -18,7 +18,7 @@ class ScreenMCPServer(MCPServer):
                 str: A message stating whether the screen is currently on or off.
             """
             try:
-                state_str = "on" if self.screen.on else "off"
+                state_str = "on" if self.screen.is_screen_on else "off"
                 return f"The screen is currently {state_str}."
             except Exception as e:
                 return f"Error retrieving screen state: {str(e)}"
@@ -37,7 +37,11 @@ class ScreenMCPServer(MCPServer):
             """
             try:
                 # Using self.screen to ensure we reference the instance variable
-                self.screen.set_screen_power(on, force=True)
+                if on:
+                    self.screen.activate_screen(force=True)
+                else:
+                    self.screen.deactivate_screen()
+
                 state_str = "on" if on else "off"
                 return f"Screen successfully turned {state_str}."
             except Exception as e:

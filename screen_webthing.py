@@ -25,7 +25,7 @@ class ScreenThing(Thing):
         self.screen = screen
         self.screen.add_listener(self.on_value_changed)
 
-        self.on = Value(screen.on, screen.set_screen_power)
+        self.on = Value(screen.is_screen_on, screen.set_screen)
         self.add_property(
             Property(self,
                      'on',
@@ -42,7 +42,7 @@ class ScreenThing(Thing):
         self.ioloop.add_callback(self._on_value_changed)
 
     def _on_value_changed(self):
-        self.on.notify_of_external_update(self.screen.on)
+        self.on.notify_of_external_update(self.screen.is_screen_on)
 
 
 def run_server(port: int, name: str, start_script_path: str, stop_script_path: str):
