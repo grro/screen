@@ -46,6 +46,7 @@ class Screen:
             self.deactivate_screen()
 
     def activate_screen(self, force: bool = False):
+        logging.info("activate screen")
         if force or not self.is_browser_started:
             self.__start_browser()
 
@@ -53,6 +54,7 @@ class Screen:
             self.__set_screen_power(True)
 
     def deactivate_screen(self):
+        logging.info("deactivate screen")
         if self.is_browser_started:
             self.__stop_browser()
 
