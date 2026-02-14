@@ -77,7 +77,6 @@ class Screen:
                 env = os.environ.copy()
                 env["XDG_RUNTIME_DIR"] = "/run/user/1000"
                 env["WAYLAND_DISPLAY"] = "wayland-0"
-                #logging.info("Executing " + self.start_script_path)
                 subprocess.Popen([self.start_script_path], env=env)
                 self.is_browser_started = True
             except Exception as e:
@@ -94,7 +93,6 @@ class Screen:
                 env["XDG_RUNTIME_DIR"] = "/run/user/1000"
                 env["WAYLAND_DISPLAY"] = "wayland-0"
                 self.is_browser_started = False
-                #logging.info("Executing " + self.stop_script_path)
                 subprocess.run([self.stop_script_path], env=env)
             except Exception as e:
                 logging.warning(f"Error executing stop script: {e}")
