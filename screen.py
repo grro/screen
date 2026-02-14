@@ -14,7 +14,6 @@ class Screen:
         self.stop_script_path = stop_script_path.strip() if stop_script_path else None
         self.is_screen_on = False
         self.is_browser_started = False
-        self.set_screen(self.is_screen_on)
         if self.start_script_path is not None and len(self.start_script_path) > 0:
             if self.start_script_path and not os.path.isfile(self.start_script_path):
                 logging.error(f"start script not found {self.start_script_path}")
@@ -26,6 +25,7 @@ class Screen:
             else:
                 logging.info("stop script path: " + str(self.stop_script_path))
 
+        self.deactivate_screen()
         Thread(target=self.__on_init, daemon=True).start()
 
     def add_listener(self, listener):
