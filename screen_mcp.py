@@ -38,7 +38,7 @@ class ScreenMCPServer(MCPServer):
             try:
                 # Using self.screen to ensure we reference the instance variable
                 if on:
-                    self.screen.activate_screen(force=True)
+                    self.screen.activate_screen()
                 else:
                     self.screen.deactivate_screen()
 

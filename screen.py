@@ -39,38 +39,35 @@ class Screen:
     def __on_init(self):
         sleep(90)
         logging.info("late initialization of screen")
-        self.activate_screen(force=True)
+        self.activate_screen()
 
-    def set_screen(self, force: bool):
-        if force or self.is_screen_on:
-            self.activate_screen(force=force)
+    def set_screen(self, is_on: bool):
+        if is_on:
+            self.activate_screen()
         else:
             self.deactivate_screen()
 
-    def activate_screen(self, force: bool = False):
-        logging.info("activate screen")
-        if force or not self.is_browser_started:
+    def activate_screen(self):
+        if not self.is_browser_started:
             self.__start_browser()
-
-        if force or not self.is_screen_on:
-            self.__set_screen_power(True)
+        else:
+            logging.info("browser already activated")
+        self.__set_screen_power(True)
 
     def deactivate_screen(self):
-        logging.info("deactivate screen")
         self.__stop_browser()
         self.__set_screen_power(False)
 
-    def __set_screen_power(self, on: bool):
+    def __set_screen_power(self, is_on: bool):
         env = os.environ.copy()
         env["XDG_RUNTIME_DIR"] = "/run/user/1000"
         env["WAYLAND_DISPLAY"] = "wayland-0"
         try:
-            state = "--on" if on else "--off"
+            state = "--on" if is_on else "--off"
             subprocess.run(["wlr-randr", "--output", "HDMI-A-2", state], env=env, check=True)
-            logging.info(f"Screen power set to {'ON' if on else 'OFF'}")
-            self.is_screen_on = on
+            logging.info(f"Screen power set to {'ON' if is_on else 'OFF'}")
+            self.is_screen_on = is_on
             self._notify_listeners()
-
         except Exception as e:
             logging.warning(f"Error: {e}")
 

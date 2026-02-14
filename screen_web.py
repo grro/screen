@@ -22,7 +22,7 @@ class SimpleRequestHandler(BaseHTTPRequestHandler):
             on_state = val in ['true', '1', 'on']
             try:
                 if on_state:
-                    screen.activate_screen(force=True)
+                    screen.activate_screen()
                 else:
                     screen.deactivate_screen()
                 self._send_json(200, {"status": "success", "screen_on": screen.is_screen_on})
