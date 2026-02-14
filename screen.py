@@ -39,6 +39,7 @@ class Screen:
     def __on_init(self):
         sleep(90)
         logging.info("late initialization of screen")
+        self.deactivate_screen()
         self.activate_screen()
 
     def set_screen(self, is_on: bool):
