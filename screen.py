@@ -1,19 +1,23 @@
 import os
+import psutil
 import subprocess
 import logging
 from time import sleep
+from datetime import datetime, timedelta
 from threading import Thread
 
 
 
 class Screen:
 
-    def __init__(self, start_script_path: str = None, stop_script_path: str = None):
+    def __init__(self, start_script_path: str = None, stop_script_path: str = None, max_cpu_load: float = 190.0):
         self.__listeners = set()
         self.start_script_path = start_script_path.strip() if start_script_path else None
         self.stop_script_path = stop_script_path.strip() if stop_script_path else None
         self.is_screen_on = False
         self.is_browser_started = False
+        self.last_browser_restart_time = datetime.now()
+        self.max_cpu_load = max_cpu_load
         if self.start_script_path is not None and len(self.start_script_path) > 0:
             if self.start_script_path and not os.path.isfile(self.start_script_path):
                 logging.error(f"start script not found {self.start_script_path}")
@@ -76,6 +80,7 @@ class Screen:
             logging.warning(f"Error: {e}")
 
     def __start_browser(self):
+        self.last_browser_restart_time = datetime.now()
         if len(self.start_script_path) > 0:
             try:
                 env = os.environ.copy()
@@ -101,3 +106,19 @@ class Screen:
                 subprocess.run([self.stop_script_path], env=env)
             except Exception as e:
                 logging.warning(f"Error executing stop script: {e}")
+
+    def __cpu_monitor(self):
+        while True:
+            try:
+                cpu_usage = psutil.cpu_percent(interval=5)
+
+                if self.is_browser_started and self.is_screen_on:
+                    if (datetime.now() + timedelta(minutes=5)) < self.last_browser_restart_time:
+                        if cpu_usage > self.max_cpu_load:
+                            logging.warning(f"HOHE CPU LOAD: {cpu_usage}% > {self.max_cpu_load}%")
+                            self.__stop_browser()
+                            self.__start_browser()
+
+            except Exception as e:
+                logging.error(f"error occurred in CPU Monitor: {e}")
+                sleep(10)
