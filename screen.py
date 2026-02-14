@@ -55,8 +55,8 @@ class Screen:
         self.__set_screen_power(True)
 
     def deactivate_screen(self):
-        self.__stop_browser()
         self.__set_screen_power(False)
+        self.__stop_browser()
 
     def __set_screen_power(self, is_on: bool):
         env = os.environ.copy()
