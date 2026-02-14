@@ -66,7 +66,8 @@ class Screen:
         try:
             state = "--on" if is_on else "--off"
             subprocess.run(["wlr-randr", "--output", "HDMI-A-2", state], env=env, check=True)
-            logging.info(f"Screen power set to {'ON' if is_on else 'OFF'}")
+            if self.is_screen_on != is_on:
+                logging.info(f"Screen power set to {'ON' if is_on else 'OFF'}")
             self.is_screen_on = is_on
             self._notify_listeners()
         except Exception as e:
