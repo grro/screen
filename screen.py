@@ -59,11 +59,8 @@ class Screen:
 
     def deactivate_screen(self):
         logging.info("deactivate screen")
-        if self.is_browser_started:
-            self.__stop_browser()
-
-        if self.is_screen_on:
-            self.__set_screen_power(False)
+        self.__stop_browser()
+        self.__set_screen_power(False)
 
     def __set_screen_power(self, on: bool):
         env = os.environ.copy()
@@ -104,6 +101,7 @@ class Screen:
                 env["WAYLAND_DISPLAY"] = "wayland-0"
                 logging.info("Executing " + self.stop_script_path)
                 subprocess.run([self.stop_script_path], env=env)
+                self.is_browser_started = False
             except Exception as e:
                 logging.warning(f"Error executing stop script: {e}")
 
