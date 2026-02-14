@@ -27,7 +27,6 @@ class Screen:
             else:
                 logging.info("stop script path: " + str(self.stop_script_path))
 
-        self.deactivate_screen()
         Thread(target=self.__on_init, daemon=True).start()
 
     def add_listener(self, listener):
