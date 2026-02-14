@@ -50,8 +50,6 @@ class Screen:
     def activate_screen(self):
         if not self.is_browser_started:
             self.__start_browser()
-        else:
-            logging.info("browser already activated")
         self.__set_screen_power(True)
 
     def deactivate_screen(self):
