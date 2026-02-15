@@ -57,11 +57,18 @@ class Screen:
         self.__set_screen_power(False)   # call blocks some secs
         self.__stop_browser()
 
-    def __set_screen_power(self, is_on: bool):
+    def _get_env(self):
         env = os.environ.copy()
         env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-        env["WAYLAND_DISPLAY"] = "wayland-0"
+        if os.path.exists("/run/user/1000/wayland-1"):
+            env["WAYLAND_DISPLAY"] = "wayland-1"
+        else:
+            env["WAYLAND_DISPLAY"] = "wayland-0"
+        return env
+
+    def __set_screen_power(self, is_on: bool):
         try:
+            env = self._get_env()
             state = "--on" if is_on else "--off"
             subprocess.run(["wlr-randr", "--output", "HDMI-A-2", state], env=env, check=True)
 
@@ -80,9 +87,7 @@ class Screen:
 
 
     def __get_real_screen_state(self) -> bool:
-        env = os.environ.copy()
-        env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-        env["WAYLAND_DISPLAY"] = "wayland-0"
+        env = self._get_env()
         try:
             result = subprocess.run(
                 ["wlr-randr", "--json"],
@@ -92,7 +97,6 @@ class Screen:
                 check=True
             )
             outputs = json.loads(result.stdout)
-
             logging.info(json.dumps(outputs, indent=2))
 
             for output in outputs:
@@ -111,9 +115,7 @@ class Screen:
         self.last_browser_restart_time = datetime.now()
         if len(self.start_script_path) > 0:
             try:
-                env = os.environ.copy()
-                env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-                env["WAYLAND_DISPLAY"] = "wayland-0"
+                env = self._get_env()
                 subprocess.Popen([self.start_script_path], env=env)
                 self.is_browser_started = True
             except Exception as e:
@@ -126,9 +128,7 @@ class Screen:
         self.is_browser_started = False
         if len(self.stop_script_path) > 0:
             try:
-                env = os.environ.copy()
-                env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-                env["WAYLAND_DISPLAY"] = "wayland-0"
+                env = self._get_env()
                 self.is_browser_started = False
                 subprocess.run([self.stop_script_path], env=env)
             except Exception as e:
