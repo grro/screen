@@ -51,10 +51,10 @@ class Screen:
     def activate_screen(self):
         if not self.is_browser_started:
             self.__start_browser()
-        self.__set_screen_power(True)
+        self.__set_screen_power(True)   # call blocks some secs
 
     def deactivate_screen(self):
-        self.__set_screen_power(False)
+        self.__set_screen_power(False)   # call blocks some secs
         self.__stop_browser()
 
     def __set_screen_power(self, is_on: bool):
@@ -71,14 +71,12 @@ class Screen:
             if real_state == is_on:
                 logging.info(f"Screen status verified: {'ON' if real_state else 'OFF'}")
                 self.is_screen_on = real_state
-                self._notify_listeners()
             else:
-                logging.warning(f"Screen Status Mismatch! Expected {is_on}, but is {real_state}")
-                # Sync internal state with reality
-                self.is_screen_on = real_state
-                self._notify_listeners()
+                self.is_screen_on = False
         except Exception as e:
-            logging.warning(f"Error: {e}")
+            logging.warning(f"Error set screen power: {e}")
+            self.is_screen_on = False
+        self._notify_listeners()
 
 
     def __get_real_screen_state(self) -> bool:
@@ -94,6 +92,8 @@ class Screen:
                 check=True
             )
             outputs = json.loads(result.stdout)
+
+            logging.info(json.dumps(outputs, indent=2))
 
             for output in outputs:
                 if output.get("name") == "HDMI-A-2":
