@@ -1,4 +1,5 @@
 import os
+import json
 import subprocess
 import logging
 from time import sleep
@@ -63,12 +64,48 @@ class Screen:
         try:
             state = "--on" if is_on else "--off"
             subprocess.run(["wlr-randr", "--output", "HDMI-A-2", state], env=env, check=True)
-            if self.is_screen_on != is_on:
-                logging.info(f"Screen power set to {'ON' if is_on else 'OFF'}")
-            self.is_screen_on = is_on
-            self._notify_listeners()
+
+            sleep(1)
+
+            real_state = self.__get_real_screen_state()
+            if real_state == is_on:
+                logging.info(f"Screen status verified: {'ON' if real_state else 'OFF'}")
+                self.is_screen_on = real_state
+                self._notify_listeners()
+            else:
+                logging.warning(f"Screen Status Mismatch! Expected {is_on}, but is {real_state}")
+                # Sync internal state with reality
+                self.is_screen_on = real_state
+                self._notify_listeners()
         except Exception as e:
             logging.warning(f"Error: {e}")
+
+
+    def __get_real_screen_state(self) -> bool:
+        env = os.environ.copy()
+        env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+        env["WAYLAND_DISPLAY"] = "wayland-0"
+        try:
+            result = subprocess.run(
+                ["wlr-randr", "--json"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            outputs = json.loads(result.stdout)
+
+            for output in outputs:
+                if output.get("name") == "HDMI-A-2":
+                    return output.get("enabled", False)
+
+            logging.warning("HDMI-A-2 not found in wlr-randr output!")
+            return False
+
+        except Exception as e:
+            logging.error(f"Error reading screen status: {e}")
+            return self.is_screen_on
+
 
     def __start_browser(self):
         self.last_browser_restart_time = datetime.now()
