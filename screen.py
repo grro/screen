@@ -39,8 +39,7 @@ class Screen:
     def __on_init(self):
         sleep(90)
         logging.info("late initialization of screen")
-        self.deactivate_screen()
-        self.activate_screen()
+        self.activate_screen(force=True)
 
     def __get_env(self):
         env = os.environ.copy()
@@ -57,8 +56,8 @@ class Screen:
         else:
             self.deactivate_screen()
 
-    def activate_screen(self):
-        if not self.is_browser_started:
+    def activate_screen(self, force: bool = False):
+        if force or not self.is_browser_started:
             self.__start_browser()
         self.__set_screen_power(True)
 
