@@ -32,7 +32,7 @@ class Screen:
 
         Thread(target=self.__on_init, daemon=True).start()
         Thread(target=self.__repair_screen_loop, daemon=True).start()
-        Thread(target=self.__run_touch_monitor, daemon=True).start()
+        Thread(target=self.__touch_loop, daemon=True).start()
 
     def add_listener(self, listener):
         self.__listeners.add(listener)
@@ -142,7 +142,7 @@ class Screen:
                 logging.warning(f"Error executing stop script: {e}")
 
 
-    def __touch_monitor(self):
+    def __touch_loop(self):
         while True:
             device_path = self.__find_touch_device_path()
             if not device_path:
@@ -156,8 +156,8 @@ class Screen:
                 for event in device.read_loop():
                     if event.type in [ecodes.EV_ABS, ecodes.EV_KEY]:
                         if datetime.now() + timedelta(seconds=-5) > self.last_touch_time:
-                            self.self.last_touch_time = datetime.now()
                             if not self.is_screen_on:
+                                self.last_touch_time = datetime.now()
                                 logging.info("activate screen due to touch event")
                                 self.activate_screen()
 
