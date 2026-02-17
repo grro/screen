@@ -4,7 +4,7 @@ import logging
 from time import sleep
 from datetime import datetime
 from threading import Thread
-
+from typing import Optional
 
 
 class Screen:
@@ -28,6 +28,7 @@ class Screen:
                 logging.info("stop script path: " + str(self.stop_script_path))
 
         Thread(target=self.__on_init, daemon=True).start()
+        Thread(target=self.__repair_screen_loop, daemon=True).start()
 
     def add_listener(self, listener):
         self.__listeners.add(listener)
@@ -76,6 +77,43 @@ class Screen:
             self._notify_listeners()
         except Exception as e:
             logging.warning(f"Error: {e}")
+
+    def __get_screen_status(self) -> Optional[bool]:
+        env = self.__get_env()
+        try:
+            result = subprocess.run(["wlr-randr"], env=env, capture_output=True, text=True, check=True)
+            output = result.stdout
+
+            if "HDMI-A-2" in output:
+                lines = output.splitlines()
+                target_found = False
+                for i, line in enumerate(lines):
+                    if "HDMI-A-2" in line:
+                        target_found = True
+                        for j in range(i+1, min(i+10, len(lines))):
+                            if "Enabled: yes" in lines[j]:
+                                return True
+                            if "Enabled: no" in lines[j]:
+                                return False
+                            if "  " in lines[j] and "*" in lines[j]:
+                                return True
+                return target_found
+            return False
+        except Exception as e:
+            logging.warning(f"Failed to check screen status: {e}")
+            return None
+
+    def __repair_screen_loop(self):
+        while True:
+            sleep(70)
+            try:
+                if self.is_screen_on:
+                    screen_state = self.__get_screen_status()
+                    if screen_state is False:
+                        logging.warning("Screen is expected to be ON but appears OFF. Attempting to repair...")
+                        self.__set_screen_power(True)
+            except Exception as e:
+                logging.warning(f"Error repairing screen: {e}")
 
     def __start_browser(self):
         self.last_browser_restart_time = datetime.now()
