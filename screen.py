@@ -43,6 +43,8 @@ class Screen:
     def __on_init(self):
         sleep(90)
         logging.info("late initialization of screen")
+        self.deactivate_screen()
+        sleep(4)
         self.activate_screen(force=True)
 
     def __get_env(self):
@@ -150,6 +152,7 @@ class Screen:
                 sleep(10)
                 continue
 
+            logging.warning("touch device found: " + str(device_path))
             try:
                 device = InputDevice(device_path)
 
