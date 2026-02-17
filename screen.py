@@ -2,9 +2,11 @@ import os
 import subprocess
 import logging
 from time import sleep
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import Thread
 from typing import Optional
+import evdev
+from evdev import InputDevice, categorize, ecodes
 
 
 class Screen:
@@ -16,6 +18,7 @@ class Screen:
         self.is_screen_on = False
         self.is_browser_started = False
         self.last_browser_restart_time = datetime.now()
+        self.last_touch_time = datetime.now()
         if self.start_script_path is not None and len(self.start_script_path) > 0:
             if self.start_script_path and not os.path.isfile(self.start_script_path):
                 logging.error(f"start script not found {self.start_script_path}")
@@ -29,6 +32,7 @@ class Screen:
 
         Thread(target=self.__on_init, daemon=True).start()
         Thread(target=self.__repair_screen_loop, daemon=True).start()
+        Thread(target=self.__run_touch_monitor, daemon=True).start()
 
     def add_listener(self, listener):
         self.__listeners.add(listener)
@@ -136,3 +140,40 @@ class Screen:
                 subprocess.run(["/bin/bash", self.stop_script_path], env=env)
             except Exception as e:
                 logging.warning(f"Error executing stop script: {e}")
+
+
+    def __touch_monitor(self):
+        while True:
+            device_path = self.__find_touch_device_path()
+            if not device_path:
+                logging.warning("Kein Touch-Gerät gefunden. Suche in 10s erneut...")
+                sleep(10)
+                continue
+
+            try:
+                device = InputDevice(device_path)
+                logging.info(f"Überwache Touch-Events auf: {device.name} ({device_path})")
+
+                for event in device.read_loop():
+                    if event.type in [ecodes.EV_ABS, ecodes.EV_KEY]:
+                        if datetime.now() + timedelta(seconds=-5) > self.last_touch_time:
+                            self.self.last_touch_time = datetime.now()
+                            if not self.is_screen_on:
+                                self.activate_screen()
+
+            except Exception as e:
+                logging.error(f"Fehler beim Lesen des Touch-Geräts: {e}")
+                sleep(5)
+
+    def __find_touch_device_path(self) -> Optional[str]:
+        try:
+            devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+            for device in devices:
+                capabilities = device.capabilities()
+                if ecodes.EV_ABS in capabilities:
+                    abs_codes = [code[0] for code in capabilities[ecodes.EV_ABS]]
+                    if ecodes.ABS_MT_POSITION_X in abs_codes or ecodes.ABS_X in abs_codes:
+                        return device.path
+        except Exception as e:
+            logging.error(f"Fehler bei Gerätesuche: {e}")
+        return None
