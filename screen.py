@@ -146,23 +146,23 @@ class Screen:
         while True:
             device_path = self.__find_touch_device_path()
             if not device_path:
-                logging.warning("Kein Touch-Gerät gefunden. Suche in 10s erneut...")
+                logging.warning("no touch device found. searching...")
                 sleep(10)
                 continue
 
             try:
                 device = InputDevice(device_path)
-                logging.info(f"Überwache Touch-Events auf: {device.name} ({device_path})")
 
                 for event in device.read_loop():
                     if event.type in [ecodes.EV_ABS, ecodes.EV_KEY]:
                         if datetime.now() + timedelta(seconds=-5) > self.last_touch_time:
                             self.self.last_touch_time = datetime.now()
                             if not self.is_screen_on:
+                                logging.info("activate screen due to touch event")
                                 self.activate_screen()
 
             except Exception as e:
-                logging.error(f"Fehler beim Lesen des Touch-Geräts: {e}")
+                logging.error(f"error reading touch device: {e}")
                 sleep(5)
 
     def __find_touch_device_path(self) -> Optional[str]:
@@ -175,5 +175,5 @@ class Screen:
                     if ecodes.ABS_MT_POSITION_X in abs_codes or ecodes.ABS_X in abs_codes:
                         return device.path
         except Exception as e:
-            logging.error(f"Fehler bei Gerätesuche: {e}")
+            logging.error(f"error detecting touch device: {e}")
         return None
