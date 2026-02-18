@@ -110,13 +110,11 @@ class Screen:
 
     def __repair_screen_loop(self):
         while True:
-            sleep(70)
+            sleep(9)
             try:
-                if self.is_screen_on:
-                    screen_state = self.__get_screen_status()
-                    if screen_state is False:
-                        logging.warning("Screen is expected to be ON but appears OFF. Attempting to repair...")
-                        self.__set_screen_power(True)
+                if self.is_screen_on and self.__get_screen_status() is False:
+                    logging.warning("Screen is expected to be ON but appears OFF. Attempting to repair...")
+                    self.__set_screen_power(True)
             except Exception as e:
                 logging.warning(f"Error repairing screen: {e}")
 
@@ -152,15 +150,15 @@ class Screen:
                 sleep(10)
                 continue
 
-            logging.warning("touch device found: " + str(device_path))
+            logging.info("touch device found: " + str(device_path))
             try:
                 device = InputDevice(device_path)
 
                 for event in device.read_loop():
                     if event.type in [ecodes.EV_ABS, ecodes.EV_KEY]:
-                        if datetime.now() + timedelta(seconds=-5) > self.last_touch_time:
-                            if not self.is_screen_on:
-                                self.last_touch_time = datetime.now()
+                        if datetime.now() + timedelta(seconds=5) > self.last_touch_time:
+                            self.last_touch_time = datetime.now()
+                            if self.__get_screen_status() is False:
                                 logging.info("activate screen due to touch event")
                                 self.activate_screen()
 
