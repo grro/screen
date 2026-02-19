@@ -157,6 +157,7 @@ class Screen:
                 for event in device.read_loop():
                     if event.type in [ecodes.EV_ABS, ecodes.EV_KEY]:
                         if datetime.now() + timedelta(seconds=5) > self.last_touch_time:
+                            logging.info("touch event")
                             self.last_touch_time = datetime.now()
                             if self.__get_screen_status() is False:
                                 logging.info("activate screen due to touch event")
