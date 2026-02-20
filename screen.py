@@ -155,6 +155,7 @@ class Screen:
                 device = InputDevice(device_path)
 
                 for event in device.read_loop():
+                    logging.info(f"Event: type={event.type}, code={event.code}, value={event.value}")
                     if event.type in [ecodes.EV_ABS, ecodes.EV_KEY]:
                         if datetime.now() + timedelta(seconds=5) > self.last_touch_time:
                             logging.info("touch event")
