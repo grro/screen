@@ -141,60 +141,43 @@ class Screen:
             except Exception as e:
                 logging.warning(f"Error executing stop script: {e}")
 
-
     def __touch_loop(self):
-        logging.info("Starting Multi-Device-Scanner...")
-
         while True:
+            device_path = self.__find_touch_device_path()
+            if not device_path:
+                logging.warning("No touch device found. Retrying in 10s...")
+                sleep(10)
+                continue
+
             try:
-                # Findet ALLE Geräte in /dev/input
-                devices = [InputDevice(path) for path in evdev.list_devices()]
-                if not devices:
-                    logging.warning("No input devices found at all in /dev/input!")
-                    sleep(10)
-                    continue
+                device = InputDevice(device_path)
+                logging.info(f"Connected to touch device: {device.name} ({device_path})")
 
-                for d in devices:
-                    logging.info(f"Monitoring: {d.path} ({d.name})")
+                for event in device.read_loop():
+                    if event.type in [ecodes.EV_ABS, ecodes.EV_KEY]:
+                        now = datetime.now()
 
-                # Wir nutzen einen Generator, um von allen Geräten gleichzeitig zu lesen
-                from itertools import chain
-                import select
+                        if now > self.last_touch_time + timedelta(seconds=5):
+                            logging.info(f"Touch activity detected on {device_path}")
+                            self.last_touch_time = now
 
-                # Mapping von file descriptor auf device
-                dev_map = {d.fd: d for d in devices}
-
-                while True:
-                    # select wartet, bis auf irgendeinem Gerät Daten liegen
-                    r, w, x = select.select(dev_map.keys(), [], [])
-                    for fd in r:
-                        for event in dev_map[fd].read():
-                            # ABSOLUT JEDES EVENT LOGGEN (keine Filter!)
-                            # Wenn hier nichts kommt, blockiert Docker/Kernel den Stream
-                            logging.info(f"RAW DATA from {dev_map[fd].path}: type={event.type} code={event.code} val={event.value}")
-
-                            # Die eigentliche Logik
-                            if event.type in [ecodes.EV_ABS, ecodes.EV_KEY]:
-                                now = datetime.now()
-                                if now > self.last_touch_time + timedelta(seconds=2):
-                                    self.last_touch_time = now
-                                    if not self.is_screen_on:
-                                        logging.info("Wake up!")
-                                        self.activate_screen()
+                            if not self.is_screen_on:
+                                logging.info("Screen is OFF. Activating via touch event...")
+                                self.activate_screen()
 
             except Exception as e:
-                logging.error(f"Scanner Error: {e}")
+                logging.error(f"Error reading touch device {device_path}: {e}")
                 sleep(5)
 
     def __find_touch_device_path(self) -> Optional[str]:
         try:
-            devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
-            for device in devices:
-                capabilities = device.capabilities()
-                if ecodes.EV_ABS in capabilities:
-                    abs_codes = [code[0] for code in capabilities[ecodes.EV_ABS]]
-                    if ecodes.ABS_MT_POSITION_X in abs_codes or ecodes.ABS_X in abs_codes:
-                        return device.path
+            for path in evdev.list_devices():
+                dev = evdev.InputDevice(path)
+                caps = dev.capabilities()
+                if ecodes.EV_ABS in caps:
+                    abs_codes = [c[0] for c in caps[ecodes.EV_ABS]]
+                    if 53 in abs_codes or ecodes.ABS_X in abs_codes:
+                        return dev.path
         except Exception as e:
-            logging.error(f"error detecting touch device: {e}")
+            logging.error(f"Error during touch device discovery: {e}")
         return None
