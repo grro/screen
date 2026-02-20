@@ -143,29 +143,47 @@ class Screen:
 
 
     def __touch_loop(self):
+        logging.info("Starting Multi-Device-Scanner...")
+
         while True:
-            device_path = self.__find_touch_device_path()
-            if not device_path:
-                logging.warning("no touch device found. searching...")
-                sleep(10)
-                continue
-
-            logging.info("touch device found: " + str(device_path))
             try:
-                device = InputDevice(device_path)
+                # Findet ALLE Geräte in /dev/input
+                devices = [InputDevice(path) for path in evdev.list_devices()]
+                if not devices:
+                    logging.warning("No input devices found at all in /dev/input!")
+                    sleep(10)
+                    continue
 
-                for event in device.read_loop():
-                    logging.info(f"Event: type={event.type}, code={event.code}, value={event.value}")
-                    if event.type in [ecodes.EV_ABS, ecodes.EV_KEY]:
-                        if datetime.now() + timedelta(seconds=5) > self.last_touch_time:
-                            logging.info("touch event")
-                            self.last_touch_time = datetime.now()
-                            if self.__get_screen_status() is False:
-                                logging.info("activate screen due to touch event")
-                                self.activate_screen()
+                for d in devices:
+                    logging.info(f"Monitoring: {d.path} ({d.name})")
+
+                # Wir nutzen einen Generator, um von allen Geräten gleichzeitig zu lesen
+                from itertools import chain
+                import select
+
+                # Mapping von file descriptor auf device
+                dev_map = {d.fd: d for d in devices}
+
+                while True:
+                    # select wartet, bis auf irgendeinem Gerät Daten liegen
+                    r, w, x = select.select(dev_map.keys(), [], [])
+                    for fd in r:
+                        for event in dev_map[fd].read():
+                            # ABSOLUT JEDES EVENT LOGGEN (keine Filter!)
+                            # Wenn hier nichts kommt, blockiert Docker/Kernel den Stream
+                            logging.info(f"RAW DATA from {dev_map[fd].path}: type={event.type} code={event.code} val={event.value}")
+
+                            # Die eigentliche Logik
+                            if event.type in [ecodes.EV_ABS, ecodes.EV_KEY]:
+                                now = datetime.now()
+                                if now > self.last_touch_time + timedelta(seconds=2):
+                                    self.last_touch_time = now
+                                    if not self.is_screen_on:
+                                        logging.info("Wake up!")
+                                        self.activate_screen()
 
             except Exception as e:
-                logging.error(f"error reading touch device: {e}")
+                logging.error(f"Scanner Error: {e}")
                 sleep(5)
 
     def __find_touch_device_path(self) -> Optional[str]:
