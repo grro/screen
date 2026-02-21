@@ -65,28 +65,35 @@ class Screen:
     def activate_screen(self, force: bool = False):
         if force or not self.is_browser_started:
             self.__start_browser()
-        self.__set_screen_power(True)
+        self.__activate_screen_power()
 
     def deactivate_screen(self):
-        self.__set_screen_power(False)
+        self.__deactivate_screen_power()
         self.__stop_browser()
 
-    def __set_screen_power(self, is_on: bool):
-        env = self.__get_env()
+    def __activate_screen_power(self):
         try:
-            state = "--on" if is_on else "--off"
-            subprocess.run(["wlr-randr", "--output", "HDMI-A-2", state], env=env, check=True)
-            if self.is_screen_on != is_on:
-                logging.info(f"Screen power set to {'ON' if is_on else 'OFF'}")
-            self.is_screen_on = is_on
+            if not self.is_screen_on:
+                logging.info(f"Screen power set to ON")
+            self.is_screen_on = True
+            subprocess.run(["wlr-randr", "--output", "HDMI-A-2", "--on"], env=self.__get_env(), check=True)
+            self._notify_listeners()
+        except Exception as e:
+            logging.warning(f"Error: {e}")
+
+    def __deactivate_screen_power(self):
+        try:
+            if self.is_screen_on:
+                logging.info(f"Screen power set to OFF")
+            self.is_screen_on = False
+            subprocess.run(["wlr-randr", "--output", "HDMI-A-2", "--off"], env=self.__get_env(), check=True)
             self._notify_listeners()
         except Exception as e:
             logging.warning(f"Error: {e}")
 
     def __get_screen_status(self) -> Optional[bool]:
-        env = self.__get_env()
         try:
-            result = subprocess.run(["wlr-randr"], env=env, capture_output=True, text=True, check=True)
+            result = subprocess.run(["wlr-randr"], env=self.__get_env(), capture_output=True, text=True, check=True)
             output = result.stdout
 
             if "HDMI-A-2" in output:
@@ -114,7 +121,7 @@ class Screen:
             try:
                 if self.is_screen_on and self.__get_screen_status() is False:
                     logging.warning("Screen is expected to be ON but appears OFF. Attempting to repair...")
-                    self.__set_screen_power(True)
+                    self.__activate_screen_power()
             except Exception as e:
                 logging.warning(f"Error repairing screen: {e}")
 
@@ -122,8 +129,7 @@ class Screen:
         self.last_browser_restart_time = datetime.now()
         if len(self.start_script_path) > 0:
             try:
-                env = self.__get_env()
-                subprocess.Popen(["/bin/bash", self.start_script_path], env=env)
+                subprocess.Popen(["/bin/bash", self.start_script_path], env=self.__get_env())
                 self.is_browser_started = True
             except Exception as e:
                 self.is_browser_started = False
@@ -135,9 +141,8 @@ class Screen:
         self.is_browser_started = False
         if len(self.stop_script_path) > 0:
             try:
-                env = self.__get_env()
                 self.is_browser_started = False
-                subprocess.run(["/bin/bash", self.stop_script_path], env=env)
+                subprocess.run(["/bin/bash", self.stop_script_path], env=self.__get_env())
             except Exception as e:
                 logging.warning(f"Error executing stop script: {e}")
 
