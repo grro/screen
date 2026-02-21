@@ -154,6 +154,8 @@ class Screen:
                 logging.info(f"Connected to touch device: {device.name} ({device_path})")
 
                 for event in device.read_loop():
+                    logging.info(f"RAW DATA from type={event.type} code={event.code} val={event.value}")
+
                     if event.type in [ecodes.EV_ABS, ecodes.EV_KEY]:
                         now = datetime.now()
 
