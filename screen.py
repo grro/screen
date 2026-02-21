@@ -165,15 +165,13 @@ class Screen:
                     r, w, x = select.select(dev_map.keys(), [], [])
                     for fd in r:
                         for event in dev_map[fd].read():
-                            logging.info(f"RAW DATA from {dev_map[fd].path}: type={event.type} code={event.code} val={event.value}")
-
-                            if event.type in [ecodes.EV_ABS, ecodes.EV_KEY]:
-                                now = datetime.now()
-                                if now > self.last_touch_time + timedelta(seconds=2):
-                                    self.last_touch_time = now
-                                    if not self.is_screen_on:
-                                        logging.info("Wake up!")
-                                        self.activate_screen()
+                            now = datetime.now()
+                            if now > self.last_touch_time + timedelta(seconds=2):
+                                self.last_touch_time = now
+                                logging.info(f"touch from {dev_map[fd].path}: type={event.type} code={event.code} val={event.value}")
+                                if not self.is_screen_on:
+                                    logging.info("Wake up!")
+                                    self.activate_screen()
 
             except Exception as e:
                 logging.error(f"Scanner Error: {e}")
