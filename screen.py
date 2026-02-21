@@ -166,7 +166,7 @@ class Screen:
                     for fd in r:
                         for event in dev_map[fd].read():
                             now = datetime.now()
-                            if now > self.last_touch_time + timedelta(seconds=2):
+                            if now > self.last_touch_time + timedelta(seconds=5):
                                 self.last_touch_time = now
                                 logging.info(f"touch from {dev_map[fd].path}: type={event.type} code={event.code} val={event.value}")
                                 if not self.is_screen_on:
