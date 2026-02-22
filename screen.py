@@ -31,7 +31,7 @@ class Screen:
                 logging.info("stop script path: " + str(self.stop_script_path))
 
         Thread(target=self.__on_init, daemon=True).start()
-        Thread(target=self.__repair_screen_loop, daemon=True).start()
+        Thread(target=self.__repair_loop, daemon=True).start()
         Thread(target=self.__touch_loop, daemon=True).start()
 
     def add_listener(self, listener):
