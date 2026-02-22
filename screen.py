@@ -115,15 +115,30 @@ class Screen:
             logging.warning(f"Failed to check screen status: {e}")
             return None
 
-    def __repair_screen_loop(self):
+    def __is_browser_running(self) -> bool:
+        try:
+            # pgrep returns 0 if process is found
+            subprocess.run(["pgrep", "chromium"], check=True, stdout=subprocess.DEVNULL)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
+    def __repair_loop(self):
         while True:
             sleep(9)
             try:
+                # 1. Repair Screen Power
                 if self.is_screen_on and self.__get_screen_status() is False:
-                    logging.warning("Screen is expected to be ON but appears OFF. Attempting to repair...")
+                    logging.warning("Screen is expected to be ON but hardware is OFF. Repairing power...")
                     self.__activate_screen_power()
+
+                # 2. Repair Browser Process
+                if self.is_browser_started and not self.__is_browser_running():
+                    logging.warning("Browser is expected to be running but process not found. Restarting...")
+                    self.__start_browser()
+
             except Exception as e:
-                logging.warning(f"Error repairing screen: {e}")
+                logging.warning(f"Error during repair cycle: {e}")
 
     def __start_browser(self):
         self.last_browser_restart_time = datetime.now()
