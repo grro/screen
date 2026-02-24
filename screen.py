@@ -48,12 +48,13 @@ class Screen:
         self.activate_screen(force=True)
 
     def __get_env(self):
+        # env has to be set for the docker container to access the wayland socket and run wlr-randr
+        #    -e WAYLAND_DISPLAY=wayland-0 \
+        #    -e XDG_RUNTIME_DIR=/run/user/1000 \
+        #    ...
         env = os.environ.copy()
         env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-        if os.path.exists("/run/user/1000/wayland-1"):
-            env["WAYLAND_DISPLAY"] = "wayland-1"
-        else:
-            env["WAYLAND_DISPLAY"] = "wayland-0"
+        env["WAYLAND_DISPLAY"] = "wayland-0"
         return env
 
     def set_screen(self, is_on: bool):
@@ -73,21 +74,27 @@ class Screen:
 
     def __activate_screen_power(self):
         try:
-            if not self.is_screen_on:
-                logging.info(f"Screen power set to ON")
-            self.is_screen_on = True
-            subprocess.run(["wlr-randr", "--output", "HDMI-A-2", "--on"], env=self.__get_env(), check=True)
-            self._notify_listeners()
+            result = subprocess.run(["wlr-randr", "--output", "HDMI-A-2", "--on"], env=self.__get_env(), check=True)
+            if result.returncode == 0:
+                if not self.is_screen_on:
+                    logging.info(f"Screen power set to ON")
+                self.is_screen_on = True
+                self._notify_listeners()
+            else:
+                logging.warning(f"Failed to turn on screen {result}")
         except Exception as e:
             logging.warning(f"Error: {e}")
 
     def __deactivate_screen_power(self):
         try:
-            if self.is_screen_on:
-                logging.info(f"Screen power set to OFF")
-            self.is_screen_on = False
-            subprocess.run(["wlr-randr", "--output", "HDMI-A-2", "--off"], env=self.__get_env(), check=True)
-            self._notify_listeners()
+            result = subprocess.run(["wlr-randr", "--output", "HDMI-A-2", "--off"], env=self.__get_env(), check=True)
+            if result.returncode == 0:
+                if not self.is_screen_on:
+                    logging.info(f"Screen power set to OFF")
+                self.is_screen_on = False
+                self._notify_listeners()
+            else:
+                logging.warning(f"Failed to turn off screen {result}")
         except Exception as e:
             logging.warning(f"Error: {e}")
 
