@@ -74,29 +74,24 @@ class Screen:
 
     def __activate_screen_power(self):
         try:
-            result = subprocess.run(["wlr-randr", "--output", "HDMI-A-2", "--on"], env=self.__get_env(), check=True)
+            # Nutze swaymsg oder ein ähnliches Tool für DPMS
+            result = subprocess.run(["swaymsg", "output", "HDMI-A-2", "dpms", "on"], env=self.__get_env(), check=True)
             if result.returncode == 0:
-                if not self.is_screen_on:
-                    logging.info(f"Screen power set to ON")
                 self.is_screen_on = True
+                logging.info("Screen DPMS set to ON")
                 self._notify_listeners()
-            else:
-                logging.warning(f"Failed to turn on screen {result}")
         except Exception as e:
-            logging.warning(f"Error: {e}")
+            logging.warning(f"DPMS On Error: {e}")
 
     def __deactivate_screen_power(self):
         try:
-            result = subprocess.run(["wlr-randr", "--output", "HDMI-A-2", "--off"], env=self.__get_env(), check=True)
+            result = subprocess.run(["swaymsg", "output", "HDMI-A-2", "dpms", "off"], env=self.__get_env(), check=True)
             if result.returncode == 0:
-                if not self.is_screen_on:
-                    logging.info(f"Screen power set to OFF")
                 self.is_screen_on = False
+                logging.info("Screen DPMS set to OFF")
                 self._notify_listeners()
-            else:
-                logging.warning(f"Failed to turn off screen {result}")
         except Exception as e:
-            logging.warning(f"Error: {e}")
+            logging.warning(f"DPMS Off Error: {e}")
 
     def __get_screen_status(self) -> Optional[bool]:
         try:
