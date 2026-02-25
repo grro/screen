@@ -74,43 +74,52 @@ class Screen:
 
     def __activate_screen_power(self):
         try:
-            subprocess.run(["swaymsg", "output", "HDMI-A-2", "dpms", "on"], env=self.__get_env(), check=True)
-            if not self.is_screen_on:
-                logging.info("Screen power (DPMS) set to ON")
-            self.is_screen_on = True
-            self._notify_listeners()
+            result = subprocess.run(["wlr-randr", "--output", "HDMI-A-2", "--on"], env=self.__get_env(), check=True)
+            if result.returncode == 0:
+                if not self.is_screen_on:
+                    logging.info(f"Screen power set to ON")
+                self.is_screen_on = True
+                self._notify_listeners()
+            else:
+                logging.warning(f"Failed to turn on screen {result}")
         except Exception as e:
-            logging.warning(f"Error turning on DPMS: {e}")
+            logging.warning(f"Error: {e}")
 
     def __deactivate_screen_power(self):
         try:
-            subprocess.run(["swaymsg", "output", "HDMI-A-2", "dpms", "off"], env=self.__get_env(), check=True)
-            if self.is_screen_on:
-                logging.info("Screen power (DPMS) set to OFF")
-            self.is_screen_on = False
-            self._notify_listeners()
+            result = subprocess.run(["wlr-randr", "--output", "HDMI-A-2", "--off"], env=self.__get_env(), check=True)
+            if result.returncode == 0:
+                if not self.is_screen_on:
+                    logging.info(f"Screen power set to OFF")
+                self.is_screen_on = False
+                self._notify_listeners()
+            else:
+                logging.warning(f"Failed to turn off screen {result}")
         except Exception as e:
-            logging.warning(f"Error turning off DPMS: {e}")
+            logging.warning(f"Error: {e}")
 
     def __get_screen_status(self) -> Optional[bool]:
         try:
-            result = subprocess.run(
-                ["swaymsg", "-t", "get_outputs", "-r"],
-                env=self.__get_env(),
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            import json
-            outputs = json.loads(result.stdout)
+            result = subprocess.run(["wlr-randr"], env=self.__get_env(), capture_output=True, text=True, check=True)
+            output = result.stdout
 
-            for out in outputs:
-                if out.get("name") == "HDMI-A-2":
-                    return out.get("dpms") is True
+            if "HDMI-A-2" in output:
+                lines = output.splitlines()
+                target_found = False
+                for i, line in enumerate(lines):
+                    if "HDMI-A-2" in line:
+                        target_found = True
+                        for j in range(i+1, min(i+10, len(lines))):
+                            if "Enabled: yes" in lines[j]:
+                                return True
+                            if "Enabled: no" in lines[j]:
+                                return False
+                            if "  " in lines[j] and "*" in lines[j]:
+                                return True
+                return target_found
             return False
-
         except Exception as e:
-            logging.warning(f"Failed to check DPMS status: {e}")
+            logging.warning(f"Failed to check screen status: {e}")
             return None
 
     def __is_browser_running(self) -> bool:
