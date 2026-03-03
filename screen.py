@@ -73,19 +73,20 @@ class Screen:
         self.__stop_browser()
 
     def __activate_screen_power(self):
+        self.is_screen_on = True    # optimistically set to true, if it fails we will be repaired
         try:
             result = subprocess.run(["wlr-randr", "--output", "HDMI-A-2", "--on"], env=self.__get_env(), check=True)
             if result.returncode == 0:
                 if not self.is_screen_on:
                     logging.info(f"Screen power set to ON")
-                self.is_screen_on = True
                 self._notify_listeners()
             else:
                 logging.warning(f"Failed to turn on screen {result}")
         except Exception as e:
-            logging.warning(f"Error: {e}")
+            logging.warning(f"Error activating screen power: {e}")
 
     def __deactivate_screen_power(self):
+        self.is_screen_on = False    # optimistically set to false, if it fails we will be repaired
         try:
             result = subprocess.run(["wlr-randr", "--output", "HDMI-A-2", "--off"], env=self.__get_env(), check=True)
             if result.returncode == 0:
@@ -96,9 +97,9 @@ class Screen:
             else:
                 logging.warning(f"Failed to turn off screen {result}")
         except Exception as e:
-            logging.warning(f"Error: {e}")
+            logging.warning(f"Error deactivating screen power: {e}")
 
-    def __get_screen_status(self) -> Optional[bool]:
+    def __get_screen_power_status(self) -> Optional[bool]:
         try:
             result = subprocess.run(["wlr-randr"], env=self.__get_env(), capture_output=True, text=True, check=True)
             output = result.stdout
@@ -135,9 +136,16 @@ class Screen:
             sleep(9)
             try:
                 # 1. Repair Screen Power
-                if self.is_screen_on and self.__get_screen_status() is False:
-                    logging.warning("Screen is expected to be ON but hardware is OFF. Repairing power...")
-                    self.__activate_screen_power()
+                if self.__get_screen_power_status():  # hardware is ON
+                    if not self.is_screen_on:
+                        logging.warning("Screen is expected to be OFF but hardware is ON. Repairing power...")
+                        self.__deactivate_screen_power()
+                    else:
+                        pass
+                else:   # hardware is OFF
+                    if self.is_screen_on:
+                        logging.warning("Screen is expected to be ON but hardware is OFF. Repairing power...")
+                        self.__activate_screen_power()
 
                 # 2. Repair Browser Process
                 if self.is_browser_started and not self.__is_browser_running():
