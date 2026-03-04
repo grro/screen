@@ -1,10 +1,11 @@
 import os
+import re
 import subprocess
 import logging
 from time import sleep
 from datetime import datetime, timedelta
 from threading import Thread
-from typing import Optional
+from typing import Optional, List
 import evdev
 from evdev import InputDevice, categorize, ecodes
 
@@ -57,6 +58,16 @@ class Screen:
         env["WAYLAND_DISPLAY"] = "wayland-0"
         return env
 
+    def __get_available_outputs(self) -> List[str]:
+        try:
+            result = subprocess.run(["wlr-randr"], env=self.__get_env(), capture_output=True, text=True, check=True)
+            # Findet HDMI-A-1, HDMI-A-2, etc.
+            outputs = re.findall(r"(HDMI-A-\d+|NOOP-\d+)", result.stdout)
+            return list(set(outputs)) if outputs else ["HDMI-A-2"]
+        except Exception as e:
+            logging.warning(f"Failed to list outputs: {e}")
+            return ["HDMI-A-2"]
+
     def set_screen(self, is_on: bool):
         if is_on:
             self.activate_screen()
@@ -74,30 +85,32 @@ class Screen:
 
     def __activate_screen_power(self):
         self.is_screen_on = True    # optimistically set to true, if it fails we will be repaired
-        try:
-            result = subprocess.run(["wlr-randr", "--output", "HDMI-A-2", "--on"], env=self.__get_env(), check=True)
-            if result.returncode == 0:
-                if not self.is_screen_on:
-                    logging.info(f"Screen power set to ON")
-                self._notify_listeners()
-            else:
-                logging.warning(f"Failed to turn on screen {result}")
-        except Exception as e:
-            logging.warning(f"Error activating screen power: {e}")
+        for out in self.__get_available_outputs():
+            try:
+                result = subprocess.run(["wlr-randr", "--output", out, "--on"], env=self.__get_env(), capture_output=True, text=True)
+                if result.returncode == 0:
+                    if not self.is_screen_on:
+                        logging.info(f"Screen power set to ON")
+                    self._notify_listeners()
+                else:
+                    logging.warning(f"Failed to turn on screen {result}")
+            except Exception as e:
+                logging.warning(f"Error activating screen power: {e}")
 
     def __deactivate_screen_power(self):
         self.is_screen_on = False    # optimistically set to false, if it fails we will be repaired
-        try:
-            result = subprocess.run(["wlr-randr", "--output", "HDMI-A-2", "--off"], env=self.__get_env(), check=True)
-            if result.returncode == 0:
-                if not self.is_screen_on:
-                    logging.info(f"Screen power set to OFF")
-                self.is_screen_on = False
-                self._notify_listeners()
-            else:
-                logging.warning(f"Failed to turn off screen {result}")
-        except Exception as e:
-            logging.warning(f"Error deactivating screen power: {e}")
+        for out in self.__get_available_outputs():
+            try:
+                result = subprocess.run(["wlr-randr", "--output", out, "--off"], env=self.__get_env(), capture_output=True, text=True)
+                if result.returncode == 0:
+                    if not self.is_screen_on:
+                        logging.info(f"Screen power set to OFF")
+                    self.is_screen_on = False
+                    self._notify_listeners()
+                else:
+                    logging.warning(f"Failed to turn off screen {result}")
+            except Exception as e:
+                logging.warning(f"Error deactivating screen power: {e}")
 
     def __get_screen_power_status(self) -> Optional[bool]:
         try:
@@ -137,13 +150,13 @@ class Screen:
             try:
                 # 1. Repair Screen Power
                 if self.__get_screen_power_status():  # hardware is ON
-                    if not self.is_screen_on:
+                    if not self.is_screen_on:         # switch (target state) is OFF
                         logging.warning("Screen is expected to be OFF but hardware is ON. Repairing power...")
                         self.__deactivate_screen_power()
                     else:
                         pass
-                else:   # hardware is OFF
-                    if self.is_screen_on:
+                else:                                 # hardware is OFF
+                    if self.is_screen_on:             # switch (target state) is ON
                         logging.warning("Screen is expected to be ON but hardware is OFF. Repairing power...")
                         self.__activate_screen_power()
 
