@@ -4,7 +4,7 @@ import subprocess
 import logging
 import time
 from threading import Thread, Lock
-from typing import Optional, List
+from typing import List
 from datetime import datetime, timedelta
 
 class Screen:
@@ -46,6 +46,13 @@ class Screen:
             return res.returncode == 0
         except:
             return False
+
+    def set_screen(self, is_on: bool):
+        """ Manuelle Steuerung von extern """
+        if is_on:
+            self.activate_screen()
+        else:
+            self.deactivate_screen()
 
     def activate_screen(self, force: bool = False):
         with self.lock:
