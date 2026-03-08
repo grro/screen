@@ -3,69 +3,62 @@ import re
 import subprocess
 import logging
 from time import sleep
-from datetime import datetime, timedelta
-from threading import Thread
+from threading import Thread, Lock
 from typing import Optional, List
-import evdev
-from evdev import InputDevice, categorize, ecodes
+
 
 
 class Screen:
-
     def __init__(self, start_script_path: str = None, stop_script_path: str = None):
         self.__listeners = set()
+        self.lock = Lock()  # Verhindert Kollisionen bei wlr-randr Aufrufen
+
         self.start_script_path = start_script_path.strip() if start_script_path else None
         self.stop_script_path = stop_script_path.strip() if stop_script_path else None
+
         self.is_screen_on = False
         self.is_browser_started = False
-        self.last_browser_restart_time = datetime.now()
-        self.last_touch_time = datetime.now()
-        if self.start_script_path is not None and len(self.start_script_path) > 0:
-            if self.start_script_path and not os.path.isfile(self.start_script_path):
-                logging.error(f"start script not found {self.start_script_path}")
-            else:
-                logging.info("start script path: " + str(self.start_script_path))
-        if self.stop_script_path is not None and len(self.stop_script_path) > 0:
-            if self.stop_script_path and not os.path.isfile(self.stop_script_path):
-                logging.error(f"stop script not found {self.stop_script_path}")
-            else:
-                logging.info("stop script path: " + str(self.stop_script_path))
+
+        if self.start_script_path and not os.path.isfile(self.start_script_path):
+            logging.error(f"Start-Script nicht gefunden: {self.start_script_path}")
+        if self.stop_script_path and not os.path.isfile(self.stop_script_path):
+            logging.error(f"Stop-Script nicht gefunden: {self.stop_script_path}")
 
         Thread(target=self.__on_init, daemon=True).start()
         Thread(target=self.__repair_loop, daemon=True).start()
-        Thread(target=self.__touch_loop, daemon=True).start()
 
     def add_listener(self, listener):
         self.__listeners.add(listener)
 
     def _notify_listeners(self):
-        [listener() for listener in self.__listeners]
-
-    def __on_init(self):
-        sleep(90)
-        logging.info("late initialization of screen")
-        self.deactivate_screen()
-        sleep(4)
-        self.activate_screen(force=True)
+        for listener in self.__listeners:
+            try:
+                listener()
+            except Exception as e:
+                logging.debug(f"Listener Fehler: {e}")
 
     def __get_env(self):
-        # env has to be set for the docker container to access the wayland socket and run wlr-randr
-        #    -e WAYLAND_DISPLAY=wayland-0 \
-        #    -e XDG_RUNTIME_DIR=/run/user/1000 \
-        #    ...
         env = os.environ.copy()
         env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-        env["WAYLAND_DISPLAY"] = "wayland-0"
+        if os.path.exists("/run/user/1000/wayland-1"):
+            env["WAYLAND_DISPLAY"] = "wayland-1"
+        else:
+            env["WAYLAND_DISPLAY"] = "wayland-0"
         return env
+
+    def __on_init(self):
+        sleep(60)
+        logging.info("Initialisierung: Setze Bildschirm-Grundzustand...")
+        self.deactivate_screen()
+        sleep(5)
+        self.activate_screen(force=True)
 
     def __get_available_outputs(self) -> List[str]:
         try:
-            result = subprocess.run(["wlr-randr"], env=self.__get_env(), capture_output=True, text=True, check=True)
-            # Findet HDMI-A-1, HDMI-A-2, etc.
-            outputs = re.findall(r"(HDMI-A-\d+|NOOP-\d+)", result.stdout)
-            return list(set(outputs)) if outputs else ["HDMI-A-2"]
-        except Exception as e:
-            logging.warning(f"Failed to list outputs: {e}")
+            result = subprocess.run(["wlr-randr"], env=self.__get_env(), capture_output=True, text=True, timeout=5)
+            outputs = re.findall(r"^(\S+)\s", result.stdout, re.MULTILINE)
+            return [o for o in outputs if o not in ["Make", "Model", "Enabled", "Modes:"]]
+        except Exception:
             return ["HDMI-A-2"]
 
     def set_screen(self, is_on: bool):
@@ -75,153 +68,104 @@ class Screen:
             self.deactivate_screen()
 
     def activate_screen(self, force: bool = False):
-        if force or not self.is_browser_started:
-            self.__start_browser()
-        self.__activate_screen_power()
+        with self.lock:
+            if force or not self.is_browser_started:
+                self.__start_browser()
+
+            if force or not self.is_screen_on:
+                logging.info("Aktion: Bildschirm EIN")
+                self.is_screen_on = True
+                if self.__set_power(True):
+                    self.is_screen_on = True
+                    self._notify_listeners()
 
     def deactivate_screen(self):
-        self.__deactivate_screen_power()
-        self.__stop_browser()
+        with self.lock:
+            logging.info("Aktion: Bildschirm AUS")
+            self.is_screen_on = False
+            if self.__set_power(False):
+                self.__stop_browser()
+                self._notify_listeners()
 
-    def __activate_screen_power(self):
-        self.is_screen_on = True    # optimistically set to true, if it fails we will be repaired
-        for out in self.__get_available_outputs():
-            try:
-                result = subprocess.run(["wlr-randr", "--output", out, "--on"], env=self.__get_env(), capture_output=True, text=True)
-                if result.returncode == 0:
-                    if not self.is_screen_on:
-                        logging.info(f"Screen power set to ON")
-                    self._notify_listeners()
-                else:
-                    logging.warning(f"Failed to turn on screen {result}")
-            except Exception as e:
-                logging.warning(f"Error activating screen power: {e}")
 
-    def __deactivate_screen_power(self):
-        self.is_screen_on = False    # optimistically set to false, if it fails we will be repaired
-        for out in self.__get_available_outputs():
+    def __set_power(self, on: bool) -> bool:
+        """ Führt wlr-randr Befehle mit Retry-Logik aus """
+        cmd_state = "--on" if on else "--off"
+        outputs = self.__get_available_outputs()
+        success = True
+
+        for out in outputs:
             try:
-                result = subprocess.run(["wlr-randr", "--output", out, "--off"], env=self.__get_env(), capture_output=True, text=True)
-                if result.returncode == 0:
-                    if not self.is_screen_on:
-                        logging.info(f"Screen power set to OFF")
-                    self.is_screen_on = False
-                    self._notify_listeners()
-                else:
-                    logging.warning(f"Failed to turn off screen {result}")
+                res = subprocess.run(["wlr-randr", "--output", out, cmd_state],
+                                     env=self.__get_env(), capture_output=True, text=True)
+
+                if res.returncode != 0:
+                    logging.warning(f"Fehler bei {out} {cmd_state}, versuche Reset...")
+                    sleep(2)
+                    # Reset-Versuch: Erst hart AUS, dann gewünschter Status
+                    subprocess.run(["wlr-randr", "--output", out, "--off"], env=self.__get_env())
+                    sleep(1)
+                    res = subprocess.run(["wlr-randr", "--output", out, cmd_state],
+                                         env=self.__get_env(), capture_output=True, text=True)
+
+                if res.returncode != 0:
+                    logging.error(f"Konnte {out} nicht schalten: {res.stderr.strip()}")
+                    success = False
             except Exception as e:
-                logging.warning(f"Error deactivating screen power: {e}")
+                logging.error(f"Subprocess Fehler bei wlr-randr: {e}")
+                success = False
+        return success
 
     def __get_screen_power_status(self) -> Optional[bool]:
         try:
-            result = subprocess.run(["wlr-randr"], env=self.__get_env(), capture_output=True, text=True, check=True)
+            result = subprocess.run(["wlr-randr"], env=self.__get_env(), capture_output=True, text=True, timeout=5)
             output = result.stdout
-
-            if "HDMI-A-2" in output:
-                lines = output.splitlines()
-                target_found = False
-                for i, line in enumerate(lines):
-                    if "HDMI-A-2" in line:
-                        target_found = True
-                        for j in range(i+1, min(i+10, len(lines))):
-                            if "Enabled: yes" in lines[j]:
-                                return True
-                            if "Enabled: no" in lines[j]:
-                                return False
-                            if "  " in lines[j] and "*" in lines[j]:
-                                return True
-                return target_found
-            return False
-        except Exception as e:
-            logging.warning(f"Failed to check screen status: {e}")
+            if "Enabled: yes" in output:
+                return True
+            if "Enabled: no" in output:
+                return False
+            return None
+        except:
             return None
 
-    def __is_browser_running(self) -> bool:
-        try:
-            # pgrep returns 0 if process is found
-            subprocess.run(["pgrep", "chromium"], check=True, stdout=subprocess.DEVNULL)
-            return True
-        except subprocess.CalledProcessError:
-            return False
-
     def __repair_loop(self):
+        """ Überwacht permanent den Soll-Zustand """
         while True:
-            sleep(9)
+            sleep(20)
             try:
-                # 1. Repair Screen Power
-                if self.__get_screen_power_status():  # hardware is ON
-                    if not self.is_screen_on:         # switch (target state) is OFF
-                        logging.warning("Screen is expected to be OFF but hardware is ON. Repairing power...")
-                        self.__deactivate_screen_power()
+                hw_on = self.__get_screen_power_status()
+                if hw_on is None:
+                    continue
+
+                # Wenn Hardware-Status vom Software-Status abweicht -> Reparieren
+                if hw_on != self.is_screen_on:
+                    logging.warning(f"Repair: Hardware ist {hw_on}, sollte sein {self.is_screen_on}")
+                    if self.is_screen_on:
+                        self.activate_screen(force=True)
                     else:
-                        pass
-                else:                                 # hardware is OFF
-                    if self.is_screen_on:             # switch (target state) is ON
-                        logging.warning("Screen is expected to be ON but hardware is OFF. Repairing power...")
-                        self.__activate_screen_power()
+                        self.deactivate_screen()
 
-                # 2. Repair Browser Process
-                if self.is_browser_started and not self.__is_browser_running():
-                    logging.warning("Browser is expected to be running but process not found. Restarting...")
-                    self.__start_browser()
-
+                # Browser-Wächter
+                if self.is_browser_started:
+                    res = subprocess.run(["pgrep", "chromium"], capture_output=True)
+                    if res.returncode != 0:
+                        logging.warning("Browser-Prozess verschwunden! Starte neu...")
+                        self.__start_browser()
             except Exception as e:
-                logging.warning(f"Error during repair cycle: {e}")
+                logging.error(f"Fehler im Repair-Loop: {e}")
 
     def __start_browser(self):
-        self.last_browser_restart_time = datetime.now()
-        if len(self.start_script_path) > 0:
+        if self.start_script_path:
             try:
                 subprocess.Popen(["/bin/bash", self.start_script_path], env=self.__get_env())
                 self.is_browser_started = True
             except Exception as e:
-                self.is_browser_started = False
-                logging.warning(f"Error executing start script: {e}")
-        else:
-            self.is_browser_started = True
+                logging.error(f"Fehler beim Browser-Start: {e}")
 
     def __stop_browser(self):
-        self.is_browser_started = False
-        if len(self.stop_script_path) > 0:
+        if self.stop_script_path:
             try:
-                self.is_browser_started = False
                 subprocess.run(["/bin/bash", self.stop_script_path], env=self.__get_env())
+                self.is_browser_started = False
             except Exception as e:
-                logging.warning(f"Error executing stop script: {e}")
-
-
-    def __touch_loop(self):
-        logging.info("Starting Multi-Device-Scanner...")
-
-        while True:
-            try:
-                devices = [InputDevice(path) for path in evdev.list_devices()]
-                if not devices:
-                    logging.warning("No input devices found at all in /dev/input!")
-                    sleep(10)
-                    continue
-
-                for d in devices:
-                    logging.info(f"Monitoring: {d.path} ({d.name})")
-
-                from itertools import chain
-                import select
-
-                dev_map = {d.fd: d for d in devices}
-
-                while True:
-                    r, w, x = select.select(dev_map.keys(), [], [])
-                    for fd in r:
-                        for event in dev_map[fd].read():
-                            now = datetime.now()
-                            if now > self.last_touch_time + timedelta(seconds=5):
-                                self.last_touch_time = now
-                                logging.info(f"touch from {dev_map[fd].path}: type={event.type} code={event.code} val={event.value}")
-                                if not self.is_screen_on:
-                                    logging.info("Wake up!")
-                                    self.activate_screen()
-
-            except Exception as e:
-                logging.error(f"Scanner Error: {e}")
-                sleep(5)
-
+                logging.error(f"Fehler beim Browser-Stop: {e}")
