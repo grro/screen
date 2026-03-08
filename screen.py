@@ -69,15 +69,17 @@ class Screen:
 
     def activate_screen(self, force: bool = False):
         with self.lock:
-            if force or not self.is_browser_started:
+            # NUR starten, wenn er nicht läuft. Nicht jedes Mal forcieren!
+            if not self.__is_browser_running():
+                logging.info("Browser läuft nicht. Starte...")
                 self.__start_browser()
 
             if force or not self.is_screen_on:
                 logging.info("Aktion: Bildschirm EIN")
-                self.is_screen_on = True
                 if self.__set_power(True):
                     self.is_screen_on = True
                     self._notify_listeners()
+
 
     def deactivate_screen(self):
         with self.lock:
@@ -89,30 +91,35 @@ class Screen:
 
 
     def __set_power(self, on: bool) -> bool:
-        """ Führt wlr-randr Befehle mit Retry-Logik aus """
         cmd_state = "--on" if on else "--off"
         outputs = self.__get_available_outputs()
         success = True
 
         for out in outputs:
             try:
+                # 1. Versuch
                 res = subprocess.run(["wlr-randr", "--output", out, cmd_state],
                                      env=self.__get_env(), capture_output=True, text=True)
 
                 if res.returncode != 0:
-                    logging.warning(f"Fehler bei {out} {cmd_state}, versuche Reset...")
-                    sleep(2)
-                    # Reset-Versuch: Erst hart AUS, dann gewünschter Status
+                    logging.warning(f"Fehler bei {out}. Warte kurz...")
+                    sleep(3) # Längere Pause für den HDMI-Handshake
+
+                    # Pro-Tipp: Manchmal hilft es, einen Mode explizit zu setzen
+                    # anstatt nur --on, um den 'failed to apply' Fehler zu umgehen.
+                    # Wir versuchen es hier erst nochmal mit einem sauberen 'off' -> 'on'
                     subprocess.run(["wlr-randr", "--output", out, "--off"], env=self.__get_env())
-                    sleep(1)
-                    res = subprocess.run(["wlr-randr", "--output", out, cmd_state],
+                    sleep(2)
+                    res = subprocess.run(["wlr-randr", "--output", out, "--on"],
                                          env=self.__get_env(), capture_output=True, text=True)
 
                 if res.returncode != 0:
+                    # Letzter Versuch: Falls es immer noch scheitert,
+                    # könnte der DRM-Lease blockiert sein.
                     logging.error(f"Konnte {out} nicht schalten: {res.stderr.strip()}")
                     success = False
             except Exception as e:
-                logging.error(f"Subprocess Fehler bei wlr-randr: {e}")
+                logging.error(f"Subprocess Fehler: {e}")
                 success = False
         return success
 
