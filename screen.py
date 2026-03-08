@@ -61,14 +61,11 @@ class Screen:
             hardware_success = True
             if force or not self.is_screen_on:
                 logging.info("Aktion: Bildschirm EIN")
+                self.is_screen_on = True
                 hardware_success = self.__set_power(True)
                 if hardware_success:
-                    self.is_screen_on = True
                     self._notify_listeners()
                 else:
-                    # Wenn HW fehlschlägt, setzen wir den Status auf False,
-                    # damit der Repair-Loop später erneut (mit Pause) versucht.
-                    self.is_screen_on = False
                     logging.error("Breche Browser-Start ab, da Hardware nicht bereit ist.")
                     return # WICHTIG: Hier abbrechen!
 
