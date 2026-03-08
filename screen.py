@@ -3,6 +3,7 @@ import re
 import subprocess
 import logging
 import time
+from time import sleep
 from threading import Thread, Lock
 from typing import List
 from datetime import datetime, timedelta
@@ -56,22 +57,28 @@ class Screen:
 
     def activate_screen(self, force: bool = False):
         with self.lock:
-            # 1. Hardware zuerst
+            # 1. Erst versuchen, die Hardware einzuschalten
+            hardware_success = True
             if force or not self.is_screen_on:
                 logging.info("Aktion: Bildschirm EIN")
-                self.is_screen_on = True
-                self.__set_power(True)
-                self._notify_listeners()
+                hardware_success = self.__set_power(True)
+                if hardware_success:
+                    self.is_screen_on = True
+                    self._notify_listeners()
+                else:
+                    # Wenn HW fehlschlägt, setzen wir den Status auf False,
+                    # damit der Repair-Loop später erneut (mit Pause) versucht.
+                    self.is_screen_on = False
+                    logging.error("Breche Browser-Start ab, da Hardware nicht bereit ist.")
+                    return # WICHTIG: Hier abbrechen!
 
-            # 2. Browser mit Zeit-Schutz (Cooldown)
-            now = datetime.now()
-            if not self.__is_browser_running():
+            # 2. Browser NUR starten, wenn Hardware erfolgreich war
+            if hardware_success and not self.__is_browser_running():
+                now = datetime.now()
                 if now > self.last_browser_attempt + timedelta(seconds=15):
-                    logging.info("Wächter: Browser läuft nicht. Starte neu...")
+                    logging.info("Wächter: Hardware OK. Starte Browser...")
                     self.last_browser_attempt = now
                     self.__start_browser()
-                else:
-                    logging.debug("Browser-Start im Cooldown - warte auf Initialisierung...")
 
     def deactivate_screen(self):
         with self.lock:
@@ -85,21 +92,36 @@ class Screen:
         cmd_state = "--on" if on else "--off"
         outputs = self.__get_available_outputs()
 
+        overall_success = False
         for out in outputs:
             try:
-                # Prüfen, ob der Ausgang aktuell wirklich existiert (verhindert NOOP-Leichen)
+                # Versuch 1
                 res = subprocess.run(["wlr-randr", "--output", out, cmd_state],
                                      env=self.__get_env(), capture_output=True, text=True)
 
-                if res.returncode != 0:
-                    logging.warning(f"Hardware verweigert {out}. Versuche Reset...")
-                    time.sleep(3)
-                    subprocess.run(["wlr-randr", "--output", out, "--off"], env=self.__get_env())
-                    time.sleep(2)
-                    subprocess.run(["wlr-randr", "--output", out, "--on"], env=self.__get_env())
+                if res.returncode == 0:
+                    overall_success = True
+                    continue
+
+                # Wenn Versuch 1 scheitert: Tiefer Reset
+                logging.warning(f"Hardware-Fehler bei {out}. Starte Intensiv-Reset...")
+                subprocess.run(["wlr-randr", "--output", out, "--off"], env=self.__get_env())
+                sleep(3)
+
+                # Versuch 2 mit explizitem Mode (hilft oft bei 'failed to apply')
+                # Wir versuchen 'preferred' zu erzwingen
+                res = subprocess.run(["wlr-randr", "--output", out, "--on"],
+                                     env=self.__get_env(), capture_output=True, text=True)
+
+                if res.returncode == 0:
+                    overall_success = True
+                else:
+                    logging.error(f"Finaler Hardware-Fehler {out}: {res.stderr.strip()}")
             except Exception as e:
-                logging.error(f"Fehler bei Steuerung von {out}: {e}")
-        return True
+                logging.error(f"Subprocess-Fehler: {e}")
+
+        return overall_success
+
 
     def __repair_loop(self):
         while True:
