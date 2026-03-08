@@ -88,9 +88,7 @@ class Screen:
             if force or not self.is_screen_on:
                 logging.info("Aktion: Bildschirm EIN")
                 self.is_screen_on = True  # Optimistisch setzen für den Repair-Loop
-                if not self.__set_power(True):
-                    self.is_screen_on = False  # Bei echtem Fehler zurückrollen
-                else:
+                if self.__set_power(True):
                     self._notify_listeners()
 
             # 2. Browser erst starten, wenn Hardware bereit ist
