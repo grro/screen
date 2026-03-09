@@ -1,4 +1,3 @@
-
 import os
 import re
 import subprocess
@@ -7,6 +6,7 @@ import time
 from threading import Thread, Lock
 from typing import List
 from datetime import datetime, timedelta
+
 
 
 class Screen:
@@ -113,30 +113,37 @@ class Screen:
         return success
 
     def _run_randr(self, output: str, state: str) -> bool:
-        res = subprocess.run(["wlr-randr", "--output", output, state],
-                             env=self._get_env(), capture_output=True, text=True)
+        # Wenn wir einschalten wollen, erzwingen wir eine Standard-Auflösung
+        if state == "--on":
+            cmd = ["wlr-randr", "--output", output, "--on", "--mode", "1920x1080"]
+        else:
+            cmd = ["wlr-randr", "--output", output, "--off"]
+
+        res = subprocess.run(cmd, env=self._get_env(), capture_output=True, text=True)
+
+        if res.returncode != 0:
+            logging.error(f"wlr-randr Fehler auf {output}: {res.stderr.strip()}")
         return res.returncode == 0
 
     def _repair_loop(self):
         while True:
             time.sleep(20)
             try:
-                # 1. Hardware Check
+                # Wir holen uns den aktuellen Status der Hardware
                 res = subprocess.run(["wlr-randr"], env=self._get_env(), capture_output=True, text=True)
                 hw_is_on = "Enabled: yes" in res.stdout
 
-                # 2. Repair Logic (only if there is a deviation)
-                if hw_is_on != self.target_state_is_on:
-                    logging.warning(f"Repair: HW is {hw_is_on}, Target is {self.target_state_is_on}")
-                    self.activate(force=True) if self.target_state_is_on else self.deactivate()
+                with self._lock: # Lock während der Entscheidung
+                    if hw_is_on != self.target_state_is_on:
+                        logging.warning(f"Repair: HW ist {hw_is_on}, Soll ist {self.target_state_is_on}")
+                        # WICHTIG: Nutze hier direkt _set_power, um Endlosschleifen zu vermeiden
+                        self._set_power(self.target_state_is_on)
 
-                # 3. Browser Check (Watchdog)
-                if self.browser_active and not self._is_browser_running():
-                    if datetime.now() > self.last_browser_attempt + timedelta(seconds=20):
-                        logging.warning("Watchdog: Browser process missing.")
-                        self.activate(force=False) # Uses internal logic incl. cooldown
+                        # Wenn wir einschalten wollten und es jetzt (hoffentlich) geht -> Browser-Check
+                        if self.target_state_is_on and not self._is_browser_running():
+                            self._start_browser_script()
             except Exception as e:
-                logging.error(f"Error in repair loop: {e}")
+                logging.error(f"Fehler im Repair-Loop: {e}")
 
     def _init_sequence(self):
         time.sleep(45) # Slightly earlier than before
@@ -161,5 +168,8 @@ class Screen:
             except Exception as e:
                 logging.error(f"Browser stop error: {e}")
 
-    def add_listener(self, listener): self._listeners.add(listener)
-    def _notify_listeners(self): [l() for l in self._listeners if callable(l)]
+    def add_listener(self, listener):
+        self._listeners.add(listener)
+
+    def _notify_listeners(self):
+        [l() for l in self._listeners if callable(l)]
