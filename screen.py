@@ -145,23 +145,18 @@ class Screen:
         while True:
             time.sleep(20)
             try:
-                # Hole gezielt die Info für den relevanten Monitor
                 res = subprocess.run(["wlr-randr"], env=self._get_env(), capture_output=True, text=True)
 
-                # Wir suchen nur im Block von HDMI-A-2 nach dem Status
-                # (Regex sucht nach HDMI-A-2 und dem darauffolgenden Enabled-Status)
+                # Wir suchen gezielt nur im Block von HDMI-A-2
+                # Das verhindert Fehlalarme durch virtuelle NOOP-Devices
                 match = re.search(r"HDMI-A-2.*?Enabled:\s+(yes|no)", res.stdout, re.DOTALL)
 
                 if match:
                     hw_is_on = (match.group(1) == "yes")
-
                     with self._lock:
                         if hw_is_on != self.target_state_is_on:
-                            logging.warning(f"Repair: HDMI-A-2 ist {hw_is_on}, Soll ist {self.target_state_is_on}")
-                            self._set_power(self.target_state_is_on)
-                else:
-                    logging.warning("Monitor HDMI-A-2 in wlr-randr nicht gefunden (nur NOOP vorhanden?)")
-
+                            logging.warning(f"Repair: HW ist {hw_is_on}, Soll ist {self.target_state_is_on}")
+                            self.activate(force=True) if self.target_state_is_on else self.deactivate()
             except Exception as e:
                 logging.error(f"Fehler im Repair-Loop: {e}")
 
