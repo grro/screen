@@ -1,168 +1,165 @@
+
 import os
 import re
 import subprocess
 import logging
 import time
-from time import sleep
 from threading import Thread, Lock
 from typing import List
 from datetime import datetime, timedelta
 
+
 class Screen:
-    def __init__(self, start_script_path: str = None, stop_script_path: str = None):
-        self.__listeners = set()
-        self.lock = Lock()
+    def __init__(self, start_script: str = None, stop_script: str = None):
+        self._listeners = set()
+        self._lock = Lock()
 
-        self.start_script_path = start_script_path.strip() if start_script_path else None
-        self.stop_script_path = stop_script_path.strip() if stop_script_path else None
+        self.start_script = start_script.strip() if start_script else None
+        self.stop_script = stop_script.strip() if stop_script else None
 
-        self.is_screen_on = False
-        self.is_browser_started = False
+        self.target_state_is_on = False
+        self.browser_active = False
         self.last_browser_attempt = datetime.now() - timedelta(seconds=60)
 
-        Thread(target=self.__on_init, daemon=True).start()
-        Thread(target=self.__repair_loop, daemon=True).start()
+        Thread(target=self._init_sequence, daemon=True).start()
+        Thread(target=self._repair_loop, daemon=True).start()
 
-    def __get_env(self):
+    def _get_env(self):
         env = os.environ.copy()
         env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+        # Check for Wayland display availability
         env["WAYLAND_DISPLAY"] = "wayland-1" if os.path.exists("/run/user/1000/wayland-1") else "wayland-0"
         return env
 
-    def __get_available_outputs(self) -> List[str]:
-        """ Filtert virtuelle NOOP-Ausgänge strikt aus """
+    def _get_outputs(self) -> List[str]:
+        """Filters out virtual NOOP outputs."""
         try:
-            result = subprocess.run(["wlr-randr"], env=self.__get_env(), capture_output=True, text=True, timeout=5)
-            # Findet alle Bezeichner am Zeilenanfang
-            all_found = re.findall(r"^(\S+)\s", result.stdout, re.MULTILINE)
-            # Filter: Kein NOOP, keine Header-Keywords
-            valid = [o for o in all_found if "NOOP" not in o and o not in ["Make", "Model", "Enabled", "Modes:"]]
+            res = subprocess.run(["wlr-randr"], env=self._get_env(), capture_output=True, text=True, timeout=5)
+            # Find identifiers at the start of lines
+            found = re.findall(r"^(\S+)\s", res.stdout, re.MULTILINE)
+            # Filter: No NOOP, no header keywords
+            ignore = {"Make", "Model", "Enabled", "Modes:"}
+            valid = [o for o in found if "NOOP" not in o and o not in ignore]
             return valid if valid else ["HDMI-A-2"]
         except Exception:
             return ["HDMI-A-2"]
 
-    def __is_browser_running(self) -> bool:
+    def _is_browser_running(self) -> bool:
         try:
-            res = subprocess.run(["pgrep", "chromium"], capture_output=True)
-            return res.returncode == 0
-        except:
+            return subprocess.run(["pgrep", "chromium"], capture_output=True).returncode == 0
+        except Exception:
             return False
 
-    def set_screen(self, is_on: bool):
-        """ Manuelle Steuerung von extern """
-        if is_on:
-            self.activate_screen()
-        else:
-            self.deactivate_screen()
+    def set_screen(self, turn_on: bool):
+        """Manual control from external source."""
+        self.activate() if turn_on else self.deactivate()
 
-    def activate_screen(self, force: bool = False):
-        with self.lock:
-            # 1. Erst versuchen, die Hardware einzuschalten
-            hardware_success = True
-            if force or not self.is_screen_on:
-                logging.info("Aktion: Bildschirm EIN")
-                self.is_screen_on = True
-                hardware_success = self.__set_power(True)
-                if hardware_success:
+    def activate(self, force: bool = False):
+        with self._lock:
+            # 1. First try to turn on hardware
+            hw_success = True
+            if force or not self.target_state_is_on:
+                logging.info("Action: Screen ON")
+                self.target_state_is_on = True
+                hw_success = self._set_power(True)
+                if hw_success:
                     self._notify_listeners()
                 else:
-                    logging.error("Breche Browser-Start ab, da Hardware nicht bereit ist.")
-                    return # WICHTIG: Hier abbrechen!
+                    logging.error("Aborting browser start, hardware not ready.")
+                    return # IMPORTANT: Abort here!
 
-            # 2. Browser NUR starten, wenn Hardware erfolgreich war
-            if hardware_success and not self.__is_browser_running():
+            # 2. Start browser ONLY if hardware check passed
+            if hw_success and not self._is_browser_running():
                 now = datetime.now()
                 if now > self.last_browser_attempt + timedelta(seconds=15):
-                    logging.info("Wächter: Hardware OK. Starte Browser...")
+                    logging.info("Watchdog: Hardware OK. Starting browser...")
                     self.last_browser_attempt = now
-                    self.__start_browser()
+                    self._start_browser_script()
 
-    def deactivate_screen(self):
-        with self.lock:
-            logging.info("Aktion: Bildschirm AUS")
-            self.is_screen_on = False
-            self.__set_power(False)
-            self.__stop_browser()
+    def deactivate(self):
+        with self._lock:
+            logging.info("Action: Screen OFF")
+            self.target_state_is_on = False
+            self._set_power(False)
+            self._stop_browser_script()
             self._notify_listeners()
 
-    def __set_power(self, on: bool) -> bool:
-        cmd_state = "--on" if on else "--off"
-        outputs = self.__get_available_outputs()
+    def _set_power(self, on: bool) -> bool:
+        state_arg = "--on" if on else "--off"
+        outputs = self._get_outputs()
+        success = False
 
-        overall_success = False
         for out in outputs:
             try:
-                # Versuch 1
-                res = subprocess.run(["wlr-randr", "--output", out, cmd_state],
-                                     env=self.__get_env(), capture_output=True, text=True)
-
-                if res.returncode == 0:
-                    overall_success = True
+                # Attempt 1
+                if self._run_randr(out, state_arg):
+                    success = True
                     continue
 
-                # Wenn Versuch 1 scheitert: Tiefer Reset
-                logging.warning(f"Hardware-Fehler bei {out}. Starte Intensiv-Reset...")
-                subprocess.run(["wlr-randr", "--output", out, "--off"], env=self.__get_env())
-                sleep(3)
+                # If Attempt 1 fails: Deep reset
+                logging.warning(f"Hardware error on {out}. Starting intensive reset...")
+                self._run_randr(out, "--off")
+                time.sleep(3)
 
-                # Versuch 2 mit explizitem Mode (hilft oft bei 'failed to apply')
-                # Wir versuchen 'preferred' zu erzwingen
-                res = subprocess.run(["wlr-randr", "--output", out, "--on"],
-                                     env=self.__get_env(), capture_output=True, text=True)
-
-                if res.returncode == 0:
-                    overall_success = True
+                # Attempt 2 with explicit mode (often helps with 'failed to apply')
+                # Trying to force 'preferred' implicitly by turning on again
+                if self._run_randr(out, "--on"):
+                    success = True
                 else:
-                    logging.error(f"Finaler Hardware-Fehler {out}: {res.stderr.strip()}")
+                    logging.error(f"Final hardware error {out}")
             except Exception as e:
-                logging.error(f"Subprocess-Fehler: {e}")
+                logging.error(f"Subprocess error: {e}")
 
-        return overall_success
+        return success
 
+    def _run_randr(self, output: str, state: str) -> bool:
+        res = subprocess.run(["wlr-randr", "--output", output, state],
+                             env=self._get_env(), capture_output=True, text=True)
+        return res.returncode == 0
 
-    def __repair_loop(self):
+    def _repair_loop(self):
         while True:
             time.sleep(20)
             try:
-                # 1. Hardware-Check
-                res = subprocess.run(["wlr-randr"], env=self.__get_env(), capture_output=True, text=True)
+                # 1. Hardware Check
+                res = subprocess.run(["wlr-randr"], env=self._get_env(), capture_output=True, text=True)
                 hw_is_on = "Enabled: yes" in res.stdout
 
-                # 2. Reparatur-Logik (nur bei echter Abweichung)
-                if hw_is_on != self.is_screen_on:
-                    logging.warning(f"Repair: HW ist {hw_is_on}, Soll ist {self.is_screen_on}")
-                    self.activate_screen(force=True) if self.is_screen_on else self.deactivate_screen()
+                # 2. Repair Logic (only if there is a deviation)
+                if hw_is_on != self.target_state_is_on:
+                    logging.warning(f"Repair: HW is {hw_is_on}, Target is {self.target_state_is_on}")
+                    self.activate(force=True) if self.target_state_is_on else self.deactivate()
 
-                # 3. Browser-Check (Wächter)
-                if self.is_browser_started and not self.__is_browser_running():
+                # 3. Browser Check (Watchdog)
+                if self.browser_active and not self._is_browser_running():
                     if datetime.now() > self.last_browser_attempt + timedelta(seconds=20):
-                        logging.warning("Wächter: Browser-Prozess fehlt.")
-                        self.activate_screen(force=False) # Nutzt die interne Logik inkl. Cooldown
+                        logging.warning("Watchdog: Browser process missing.")
+                        self.activate(force=False) # Uses internal logic incl. cooldown
             except Exception as e:
-                logging.error(f"Fehler im Repair-Loop: {e}")
+                logging.error(f"Error in repair loop: {e}")
 
-    def __on_init(self):
-        time.sleep(45) # Etwas früher als bisher
-        logging.info("Initialisierung: Setze Grundzustand...")
-        self.deactivate_screen()
+    def _init_sequence(self):
+        time.sleep(45) # Slightly earlier than before
+        logging.info("Init: Setting base state...")
+        self.deactivate()
         time.sleep(5)
-        self.activate_screen(force=True)
+        self.activate(force=True)
 
-    def __start_browser(self):
-        if self.start_script_path:
+    def _start_browser_script(self):
+        if self.start_script:
             try:
-                subprocess.Popen(["/bin/bash", self.start_script_path], env=self.__get_env())
-                self.is_browser_started = True
+                subprocess.Popen(["/bin/bash", self.start_script], env=self._get_env())
+                self.browser_active = True
             except Exception as e:
-                logging.error(f"Browser-Start Error: {e}")
+                logging.error(f"Browser start error: {e}")
 
-    def __stop_browser(self):
-        if self.stop_script_path:
+    def _stop_browser_script(self):
+        if self.stop_script:
             try:
-                subprocess.run(["/bin/bash", self.stop_script_path], env=self.__get_env())
-                self.is_browser_started = False
+                subprocess.run(["/bin/bash", self.stop_script], env=self._get_env())
+                self.browser_active = False
             except Exception as e:
-                logging.error(f"Browser-Stop Error: {e}")
+                logging.error(f"Browser stop error: {e}")
 
-    def add_listener(self, listener): self.__listeners.add(listener)
-    def _notify_listeners(self): [l() for l in self.__listeners if callable(l)]
+    def add_listener(self, listener): self._listeners.add(listener)
+    def _notify_listeners(self): [l() for l in self._listeners if callable(l)]
