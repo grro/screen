@@ -118,35 +118,50 @@ class Screen:
         return success
 
     def _run_randr(self, output: str, state: str) -> bool:
-        # Wenn wir einschalten wollen, erzwingen wir eine Standard-Auflösung
+        env = self._get_env()
+        # Erster Versuch: Standard (z.B. --on oder --off)
+        res = subprocess.run(["wlr-randr", "--output", output, state],
+                             env=env, capture_output=True, text=True)
+
+        if res.returncode == 0:
+            return True
+
+        # Zweiter Versuch: Falls 'An' fehlschlägt, erzwinge Modus & Position
         if state == "--on":
-            cmd = ["wlr-randr", "--output", output, "--on", "--mode", "1920x1080"]
-        else:
-            cmd = ["wlr-randr", "--output", output, "--off"]
+            logging.warning(f"Normales Einschalten fehlgeschlagen für {output}. Erzwinge Modus...")
+            # Hier 1920x1080 als Beispiel - pass es an deine native Auflösung an!
+            res = subprocess.run(
+                ["wlr-randr", "--output", output, "--on", "--mode", "1920x1080", "--pos", "0,0"],
+                env=env, capture_output=True, text=True
+            )
+            if res.returncode == 0:
+                logging.info(f"Erzwungener Modus auf {output} erfolgreich.")
+                return True
 
-        res = subprocess.run(cmd, env=self._get_env(), capture_output=True, text=True)
-
-        if res.returncode != 0:
-            logging.error(f"wlr-randr Fehler auf {output}: {res.stderr.strip()}")
-        return res.returncode == 0
+        logging.error(f"Hardware-Fehler {output} ({state}): {res.stderr.strip()}")
+        return False
 
     def _repair_loop(self):
         while True:
             time.sleep(20)
             try:
-                # Wir holen uns den aktuellen Status der Hardware
+                # Hole gezielt die Info für den relevanten Monitor
                 res = subprocess.run(["wlr-randr"], env=self._get_env(), capture_output=True, text=True)
-                hw_is_on = "Enabled: yes" in res.stdout
 
-                with self._lock: # Lock während der Entscheidung
-                    if hw_is_on != self.target_state_is_on:
-                        logging.warning(f"Repair: HW ist {hw_is_on}, Soll ist {self.target_state_is_on}")
-                        # WICHTIG: Nutze hier direkt _set_power, um Endlosschleifen zu vermeiden
-                        self._set_power(self.target_state_is_on)
+                # Wir suchen nur im Block von HDMI-A-2 nach dem Status
+                # (Regex sucht nach HDMI-A-2 und dem darauffolgenden Enabled-Status)
+                match = re.search(r"HDMI-A-2.*?Enabled:\s+(yes|no)", res.stdout, re.DOTALL)
 
-                        # Wenn wir einschalten wollten und es jetzt (hoffentlich) geht -> Browser-Check
-                        if self.target_state_is_on and not self._is_browser_running():
-                            self._start_browser_script()
+                if match:
+                    hw_is_on = (match.group(1) == "yes")
+
+                    with self._lock:
+                        if hw_is_on != self.target_state_is_on:
+                            logging.warning(f"Repair: HDMI-A-2 ist {hw_is_on}, Soll ist {self.target_state_is_on}")
+                            self._set_power(self.target_state_is_on)
+                else:
+                    logging.warning("Monitor HDMI-A-2 in wlr-randr nicht gefunden (nur NOOP vorhanden?)")
+
             except Exception as e:
                 logging.error(f"Fehler im Repair-Loop: {e}")
 
