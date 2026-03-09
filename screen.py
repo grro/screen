@@ -90,56 +90,58 @@ class Screen:
             self._notify_listeners()
 
     def _set_power(self, on: bool) -> bool:
-        state_arg = "--on" if on else "--off"
-        outputs = self._get_outputs()
-        success = False
+        output = "HDMI-A-2"
+        env = self._get_env()
 
-        for out in outputs:
-            try:
-                # Attempt 1
-                if self._run_randr(out, state_arg):
-                    success = True
-                    continue
+        if on:
+            logging.info(f"Wecke Hardware {output}...")
+            # Schritt 1: Nur Einschalten
+            subprocess.run(["wlr-randr", "--output", output, "--on"], env=env)
 
-                # If Attempt 1 fails: Deep reset
-                logging.warning(f"Hardware error on {out}. Starting intensive reset...")
-                self._run_randr(out, "--off")
-                time.sleep(3)
+            # Schritt 2: Dem Monitor Zeit geben, den Handshake zu machen
+            time.sleep(3)
 
-                # Attempt 2 with explicit mode (often helps with 'failed to apply')
-                # Trying to force 'preferred' implicitly by turning on again
-                if self._run_randr(out, "--on"):
-                    success = True
-                else:
-                    logging.error(f"Final hardware error {out}")
-            except Exception as e:
-                logging.error(f"Subprocess error: {e}")
+            # Schritt 3: Modus explizit setzen (das stabilisiert das Bild)
+            res = subprocess.run(["wlr-randr", "--output", output, "--mode", "1280x800"],
+                                 env=env, capture_output=True, text=True)
 
-        return success
+            if res.returncode == 0:
+                logging.info(f"Hardware {output} erfolgreich auf 1280x800 gesetzt.")
+                return True
+            else:
+                logging.error(f"Fehler beim Setzen des Modus: {res.stderr.strip()}")
+                return False
+        else:
+            # Ausschalten ist meist unkritisch
+            logging.info(f"Schalte Hardware {output} AUS.")
+            res = subprocess.run(["wlr-randr", "--output", output, "--off"],
+                                 env=env, capture_output=True, text=True)
+            return res.returncode == 0
 
     def _run_randr(self, output: str, state: str) -> bool:
         env = self._get_env()
-        # Erster Versuch: Standard (z.B. --on oder --off)
-        res = subprocess.run(["wlr-randr", "--output", output, state],
-                             env=env, capture_output=True, text=True)
+
+        # Wir nutzen DPMS (Energy Saving) statt den Ausgang komplett zu deaktivieren
+        dpms_state = "on" if state == "--on" else "off"
+
+        # Befehl: wlr-randr --output HDMI-A-2 --power on/off
+        cmd = ["wlr-randr", "--output", output, "--power", dpms_state]
+
+        logging.info(f"Sende DPMS {dpms_state} an {output}...")
+        res = subprocess.run(cmd, env=env, capture_output=True, text=True)
 
         if res.returncode == 0:
             return True
 
-        # Zweiter Versuch: Falls 'An' fehlschlägt, erzwinge Modus & Position
+        # Fallback: Falls --power nicht unterstützt wird, nutze --on/--off mit Modus
+        logging.warning(f"DPMS fehlgeschlagen, versuche Mode-Erzwingung...")
         if state == "--on":
-            logging.warning(f"Normales Einschalten fehlgeschlagen für {output}. Erzwinge Modus...")
-            # Hier 1920x1080 als Beispiel - pass es an deine native Auflösung an!
-            res = subprocess.run(
-                ["wlr-randr", "--output", output, "--on", "--mode", "1920x1080", "--pos", "0,0"],
-                env=env, capture_output=True, text=True
-            )
-            if res.returncode == 0:
-                logging.info(f"Erzwungener Modus auf {output} erfolgreich.")
-                return True
+            cmd = ["wlr-randr", "--output", output, "--on", "--mode", "1280x800"]
+        else:
+            cmd = ["wlr-randr", "--output", output, "--off"]
 
-        logging.error(f"Hardware-Fehler {output} ({state}): {res.stderr.strip()}")
-        return False
+        res = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        return res.returncode == 0
 
     def _repair_loop(self):
         while True:
