@@ -24,6 +24,11 @@ class Screen:
         Thread(target=self._init_sequence, daemon=True).start()
         Thread(target=self._repair_loop, daemon=True).start()
 
+
+    @property
+    def is_screen_on(self) -> bool:
+        return self.target_state_is_on
+
     def _get_env(self):
         env = os.environ.copy()
         env["XDG_RUNTIME_DIR"] = "/run/user/1000"
