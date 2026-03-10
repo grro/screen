@@ -5,6 +5,7 @@ import logging
 import time
 from threading import Thread, RLock
 from datetime import datetime, timedelta
+from time import sleep
 
 
 class Screen:
@@ -50,7 +51,14 @@ class Screen:
         try:
             logging.info("enter activate, force=" + str(force))
             with self._lock:
-                hw_success = True
+                if not self._is_browser_running():
+                    now = datetime.now()
+                    if now > self.last_browser_attempt + timedelta(seconds=15):
+                        logging.info(" Starting browser...")
+                        self.last_browser_attempt = now
+                        self._start_browser_script()
+                        sleep(2)  # Kurze Wartezeit, damit der Browser initialisiert wird
+
                 if force or not self.target_state_is_on:
                     logging.info("Action: Screen ON")
                     self.target_state_is_on = True
@@ -58,16 +66,7 @@ class Screen:
                     if hw_success:
                         self._notify_listeners()
                     else:
-                        logging.error("Aborting browser start, hardware not ready.")
-                        return
-
-                        # Browser-Check (Watchdog)
-                if hw_success and not self._is_browser_running():
-                    now = datetime.now()
-                    if now > self.last_browser_attempt + timedelta(seconds=15):
-                        logging.info("Watchdog: Hardware OK. Starting browser...")
-                        self.last_browser_attempt = now
-                        self._start_browser_script()
+                        logging.error("hardware not ready.")
         finally:
             logging.info("exit activate, force=" + str(force))
 
@@ -130,6 +129,11 @@ class Screen:
             except Exception as e:
                 logging.error(f"Fehler im Repair-Loop: {e}")
 
+            if self.target_state_is_on and not self._is_browser_running():
+                logging.warning("Repair: Browser nicht aktiv, aber Bildschirm soll an sein.")
+                self._start_browser_script()
+
+
     def _init_sequence(self):
         # 45 Sek. warten: Host-Compositor & DRM-Master müssen stabil sein
         time.sleep(45)
@@ -146,7 +150,7 @@ class Screen:
     def _start_browser_script(self):
         if self.start_script:
             try:
-                subprocess.Popen(["/bin/bash", self.start_script], env=self._get_env())
+                subprocess.Popen(["/bin/bash", self.start_script], env=self._get_env())   # non-blocking
                 self.browser_active = True
             except Exception as e:
                 logging.error(f"Browser start error: {e}")
