@@ -26,9 +26,6 @@ class Screen:
         Thread(target=self._init_sequence, daemon=True).start()
         Thread(target=self._repair_loop, daemon=True).start()
 
-    @property
-    def is_screen_on(self) -> bool:
-        return self.screen_on_target_state
 
     def _get_env(self):
         env = os.environ.copy()
@@ -36,15 +33,32 @@ class Screen:
         env["WAYLAND_DISPLAY"] = "wayland-1" if os.path.exists("/run/user/1000/wayland-1") else "wayland-0"
         return env
 
+
+    @property
+    def is_screen_on(self) -> bool:
+        return self.screen_on_target_state
+
+
+    def _is_screen_power_on(self) -> bool:
+        res = subprocess.run(["wlr-randr"], env=self._get_env(), capture_output=True, text=True)
+        # Regex filtert gezielt nur den Block des physischen Monitors
+        match = re.search(r"HDMI-A-2.*?Enabled:\s+(yes|no)", res.stdout, re.DOTALL)
+        if match:
+            return match.group(1) == "yes"
+        return False
+
+
     def _is_browser_running(self) -> bool:
         try:
             return subprocess.run(["pgrep", "chromium"], capture_output=True).returncode == 0
         except Exception:
             return False
 
+
     def set_screen(self, turn_on: bool):
         """Manuelle Steuerung von extern."""
         self.activate() if turn_on else self.deactivate()
+
 
     def activate(self):
         self.screen_on_target_state = True
@@ -57,60 +71,101 @@ class Screen:
                 if not self._is_browser_running():
                     now = datetime.now()
                     if now > self.last_browser_attempt + timedelta(seconds=15):
-                        logging.info(" Starting browser...")
                         self.last_browser_attempt = now
                         self._start_browser_script()
                         sleep(2)  # Kurze Wartezeit, damit der Browser initialisiert wird
 
                 # screen power
                 if not self._is_screen_power_on():
-                    logging.info("Action: Screen ON")
-                    if self._set_power(True):
+                    if self._set_power_on():
                         self._notify_listeners()
                     else:
                         logging.error("hardware not ready.")
         finally:
             logging.info("exit activate")
 
+
     def deactivate(self):
-        self.screen_on_target_state = True
+        self.screen_on_target_state = False
         try:
             logging.info("enter deactivate")
             with self._lock:
                 logging.info("Action: Screen OFF")
-                self._set_power(False)
+                self._set_power_off()
                 self._stop_browser_script()
                 self._notify_listeners()
         finally:
             logging.info("exit deactivate")
 
-    def _set_power(self, on: bool) -> bool:
+    def _set_power_on(self) -> bool:
         output = "HDMI-A-2"
         env = self._get_env()
 
-        if on:
-            logging.info(f"Wecke Hardware {output}...")
-            # Schritt 1: Nur Einschalten (Handshake triggern)
-            subprocess.run(["wlr-randr", "--output", output, "--on"], env=env)
+        logging.info(f"Wecke Hardware {output}...")
+        # Schritt 1: Nur Einschalten (Handshake triggern)
+        subprocess.run(["wlr-randr", "--output", output, "--on"], env=env)
 
-            # Schritt 2: Dem Monitor Zeit geben (EDID-Aushandlung)
-            time.sleep(3)
+        # Schritt 2: Dem Monitor Zeit geben (EDID-Aushandlung)
+        time.sleep(3)
 
-            # Schritt 3: Modus explizit setzen (Stabilisierung)
-            res = subprocess.run(["wlr-randr", "--output", output, "--mode", "1280x800"],
-                                 env=env, capture_output=True, text=True)
+        # Schritt 3: Modus explizit setzen (Stabilisierung)
+        res = subprocess.run(["wlr-randr", "--output", output, "--mode", "1280x800"],
+                             env=env, capture_output=True, text=True)
 
-            if res.returncode == 0:
-                logging.info(f"Hardware {output} erfolgreich auf 1280x800 gesetzt.")
-                return True
-            else:
-                logging.error(f"Fehler beim Setzen des Modus: {res.stderr.strip()}")
-                return False
+        if res.returncode == 0:
+            logging.info(f"Hardware {output} erfolgreich auf 1280x800 gesetzt.")
+            return True
         else:
-            logging.info(f"Schalte Hardware {output} AUS.")
-            res = subprocess.run(["wlr-randr", "--output", output, "--off"],
-                                 env=env, capture_output=True, text=True)
-            return res.returncode == 0
+            logging.error(f"Fehler beim Setzen des Modus: {res.stderr.strip()}")
+            return False
+
+
+    def _set_power_off(self) -> bool:
+        output = "HDMI-A-2"
+        env = self._get_env()
+
+        logging.info(f"Schalte Hardware {output} AUS.")
+        res = subprocess.run(["wlr-randr", "--output", output, "--off"],
+                             env=env, capture_output=True, text=True)
+        return res.returncode == 0
+
+
+    def _init_sequence(self):
+        # 45 Sek. warten: Host-Compositor & DRM-Master müssen stabil sein
+        time.sleep(45)
+        logging.info("Init: Setze Basis-Zustand...")
+
+        self.activate()
+
+        time.sleep(5)
+        self._initialized = True
+        logging.info("Init: System bereit, Repair-Loop aktiv.")
+
+
+    def _start_browser_script(self):
+        if self.start_script:
+            logging.info(" Starting browser...")
+            try:
+                subprocess.Popen(["/bin/bash", self.start_script], env=self._get_env())   # non-blocking
+                self.browser_active = True
+            except Exception as e:
+                logging.error(f"Browser start error: {e}")
+
+    def _stop_browser_script(self):
+        if self.stop_script:
+            logging.info(" Stopping browser...")
+            try:
+                subprocess.run(["/bin/bash", self.stop_script], env=self._get_env())
+                self.browser_active = False
+            except Exception as e:
+                logging.error(f"Browser stop error: {e}")
+
+    def add_listener(self, listener):
+        self._listeners.add(listener)
+
+    def _notify_listeners(self):
+        [l() for l in self._listeners if callable(l)]
+
 
     def _repair_loop(self):
         while True:
@@ -132,57 +187,12 @@ class Screen:
             logging.error(f"Fehler im Browser-Repair: {e}")
 
 
-    def _is_screen_power_on(self) -> bool:
-        res = subprocess.run(["wlr-randr"], env=self._get_env(), capture_output=True, text=True)
-        # Regex filtert gezielt nur den Block des physischen Monitors
-        match = re.search(r"HDMI-A-2.*?Enabled:\s+(yes|no)", res.stdout, re.DOTALL)
-        if match:
-            return match.group(1) == "yes"
-        return False
-
-
     def _repair_screen_power(self):
         try:
             hw_is_on = self._is_screen_power_on()
             if hw_is_on != self.screen_on_target_state:
                 logging.warning(f"Repair: HW ist {hw_is_on}, Soll ist {self.screen_on_target_state}")
-                self._set_power(True) if self.screen_on_target_state else self._set_power(False)
+                self._set_power_on() if self.screen_on_target_state else self._set_power_off()
         except Exception as e:
             logging.error(f"Fehler im Repair: {e}")
 
-
-    def _init_sequence(self):
-        # 45 Sek. warten: Host-Compositor & DRM-Master müssen stabil sein
-        time.sleep(45)
-        logging.info("Init: Setze Basis-Zustand...")
-
-        # Initial-Zustand erzwingen (idR. "AN" beim Booten)
-        self.activate()
-
-        # Kleine Abklingzeit, dann Repair-Loop freigeben
-        time.sleep(5)
-        self._initialized = True
-        logging.info("Init: System bereit, Repair-Loop aktiv.")
-
-
-    def _start_browser_script(self):
-        if self.start_script:
-            try:
-                subprocess.Popen(["/bin/bash", self.start_script], env=self._get_env())   # non-blocking
-                self.browser_active = True
-            except Exception as e:
-                logging.error(f"Browser start error: {e}")
-
-    def _stop_browser_script(self):
-        if self.stop_script:
-            try:
-                subprocess.run(["/bin/bash", self.stop_script], env=self._get_env())
-                self.browser_active = False
-            except Exception as e:
-                logging.error(f"Browser stop error: {e}")
-
-    def add_listener(self, listener):
-        self._listeners.add(listener)
-
-    def _notify_listeners(self):
-        [l() for l in self._listeners if callable(l)]
