@@ -4,15 +4,14 @@ import subprocess
 import logging
 import time
 from threading import Thread, Lock
-from typing import List
 from datetime import datetime, timedelta
-
 
 
 class Screen:
     def __init__(self, start_script: str = None, stop_script: str = None):
         self._listeners = set()
         self._lock = Lock()
+        self._initialized = False  # Verhindert Repair-Eingriffe während des Bootens
 
         self.start_script = start_script.strip() if start_script else None
         self.stop_script = stop_script.strip() if stop_script else None
@@ -21,9 +20,9 @@ class Screen:
         self.browser_active = False
         self.last_browser_attempt = datetime.now() - timedelta(seconds=60)
 
+        # Threads starten
         Thread(target=self._init_sequence, daemon=True).start()
         Thread(target=self._repair_loop, daemon=True).start()
-
 
     @property
     def is_screen_on(self) -> bool:
@@ -32,22 +31,9 @@ class Screen:
     def _get_env(self):
         env = os.environ.copy()
         env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-        # Check for Wayland display availability
+        # Dynamische Prüfung des Wayland-Sockets
         env["WAYLAND_DISPLAY"] = "wayland-1" if os.path.exists("/run/user/1000/wayland-1") else "wayland-0"
         return env
-
-    def _get_outputs(self) -> List[str]:
-        """Filters out virtual NOOP outputs."""
-        try:
-            res = subprocess.run(["wlr-randr"], env=self._get_env(), capture_output=True, text=True, timeout=5)
-            # Find identifiers at the start of lines
-            found = re.findall(r"^(\S+)\s", res.stdout, re.MULTILINE)
-            # Filter: No NOOP, no header keywords
-            ignore = {"Make", "Model", "Enabled", "Modes:"}
-            valid = [o for o in found if "NOOP" not in o and o not in ignore]
-            return valid if valid else ["HDMI-A-2"]
-        except Exception:
-            return ["HDMI-A-2"]
 
     def _is_browser_running(self) -> bool:
         try:
@@ -56,12 +42,11 @@ class Screen:
             return False
 
     def set_screen(self, turn_on: bool):
-        """Manual control from external source."""
+        """Manuelle Steuerung von extern."""
         self.activate() if turn_on else self.deactivate()
 
     def activate(self, force: bool = False):
         with self._lock:
-            # 1. First try to turn on hardware
             hw_success = True
             if force or not self.target_state_is_on:
                 logging.info("Action: Screen ON")
@@ -71,9 +56,9 @@ class Screen:
                     self._notify_listeners()
                 else:
                     logging.error("Aborting browser start, hardware not ready.")
-                    return # IMPORTANT: Abort here!
+                    return
 
-            # 2. Start browser ONLY if hardware check passed
+                    # Browser-Check (Watchdog)
             if hw_success and not self._is_browser_running():
                 now = datetime.now()
                 if now > self.last_browser_attempt + timedelta(seconds=15):
@@ -95,13 +80,13 @@ class Screen:
 
         if on:
             logging.info(f"Wecke Hardware {output}...")
-            # Schritt 1: Nur Einschalten
+            # Schritt 1: Nur Einschalten (Handshake triggern)
             subprocess.run(["wlr-randr", "--output", output, "--on"], env=env)
 
-            # Schritt 2: Dem Monitor Zeit geben, den Handshake zu machen
+            # Schritt 2: Dem Monitor Zeit geben (EDID-Aushandlung)
             time.sleep(3)
 
-            # Schritt 3: Modus explizit setzen (das stabilisiert das Bild)
+            # Schritt 3: Modus explizit setzen (Stabilisierung)
             res = subprocess.run(["wlr-randr", "--output", output, "--mode", "1280x800"],
                                  env=env, capture_output=True, text=True)
 
@@ -112,45 +97,20 @@ class Screen:
                 logging.error(f"Fehler beim Setzen des Modus: {res.stderr.strip()}")
                 return False
         else:
-            # Ausschalten ist meist unkritisch
             logging.info(f"Schalte Hardware {output} AUS.")
             res = subprocess.run(["wlr-randr", "--output", output, "--off"],
                                  env=env, capture_output=True, text=True)
             return res.returncode == 0
 
-    def _run_randr(self, output: str, state: str) -> bool:
-        env = self._get_env()
-
-        # Wir nutzen DPMS (Energy Saving) statt den Ausgang komplett zu deaktivieren
-        dpms_state = "on" if state == "--on" else "off"
-
-        # Befehl: wlr-randr --output HDMI-A-2 --power on/off
-        cmd = ["wlr-randr", "--output", output, "--power", dpms_state]
-
-        logging.info(f"Sende DPMS {dpms_state} an {output}...")
-        res = subprocess.run(cmd, env=env, capture_output=True, text=True)
-
-        if res.returncode == 0:
-            return True
-
-        # Fallback: Falls --power nicht unterstützt wird, nutze --on/--off mit Modus
-        logging.warning(f"DPMS fehlgeschlagen, versuche Mode-Erzwingung...")
-        if state == "--on":
-            cmd = ["wlr-randr", "--output", output, "--on", "--mode", "1280x800"]
-        else:
-            cmd = ["wlr-randr", "--output", output, "--off"]
-
-        res = subprocess.run(cmd, env=env, capture_output=True, text=True)
-        return res.returncode == 0
-
     def _repair_loop(self):
         while True:
             time.sleep(20)
+            if not self._initialized:
+                continue
+
             try:
                 res = subprocess.run(["wlr-randr"], env=self._get_env(), capture_output=True, text=True)
-
-                # Wir suchen gezielt nur im Block von HDMI-A-2
-                # Das verhindert Fehlalarme durch virtuelle NOOP-Devices
+                # Regex filtert gezielt nur den Block des physischen Monitors
                 match = re.search(r"HDMI-A-2.*?Enabled:\s+(yes|no)", res.stdout, re.DOTALL)
 
                 if match:
@@ -163,11 +123,17 @@ class Screen:
                 logging.error(f"Fehler im Repair-Loop: {e}")
 
     def _init_sequence(self):
-        time.sleep(45) # Slightly earlier than before
-        logging.info("Init: Setting base state...")
-        self.deactivate()
-        time.sleep(5)
+        # 45 Sek. warten: Host-Compositor & DRM-Master müssen stabil sein
+        time.sleep(45)
+        logging.info("Init: Setze Basis-Zustand...")
+
+        # Initial-Zustand erzwingen (idR. "AN" beim Booten)
         self.activate(force=True)
+
+        # Kleine Abklingzeit, dann Repair-Loop freigeben
+        time.sleep(5)
+        self._initialized = True
+        logging.info("Init: System bereit, Repair-Loop aktiv.")
 
     def _start_browser_script(self):
         if self.start_script:
