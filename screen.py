@@ -18,7 +18,7 @@ class Screen:
         self.start_script = start_script.strip() if start_script else None
         self.stop_script = stop_script.strip() if stop_script else None
 
-        self.target_state_is_on = False
+        self.screen_on_target_state = False
         self.browser_active = False
         self.last_browser_attempt = datetime.now() - timedelta(seconds=60)
 
@@ -28,12 +28,11 @@ class Screen:
 
     @property
     def is_screen_on(self) -> bool:
-        return self.target_state_is_on
+        return self.screen_on_target_state
 
     def _get_env(self):
         env = os.environ.copy()
         env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-        # Dynamische Prüfung des Wayland-Sockets
         env["WAYLAND_DISPLAY"] = "wayland-1" if os.path.exists("/run/user/1000/wayland-1") else "wayland-0"
         return env
 
@@ -47,10 +46,14 @@ class Screen:
         """Manuelle Steuerung von extern."""
         self.activate() if turn_on else self.deactivate()
 
-    def activate(self, force: bool = False):
+    def activate(self):
+        self.screen_on_target_state = True
+
         try:
-            logging.info("enter activate, force=" + str(force))
+            logging.info("enter activate")
             with self._lock:
+
+                # bowser
                 if not self._is_browser_running():
                     now = datetime.now()
                     if now > self.last_browser_attempt + timedelta(seconds=15):
@@ -59,23 +62,22 @@ class Screen:
                         self._start_browser_script()
                         sleep(2)  # Kurze Wartezeit, damit der Browser initialisiert wird
 
-                if force or not self.target_state_is_on:
+                # screen power
+                if not self._is_screen_power_on():
                     logging.info("Action: Screen ON")
-                    self.target_state_is_on = True
-                    hw_success = self._set_power(True)
-                    if hw_success:
+                    if self._set_power(True):
                         self._notify_listeners()
                     else:
                         logging.error("hardware not ready.")
         finally:
-            logging.info("exit activate, force=" + str(force))
+            logging.info("exit activate")
 
     def deactivate(self):
+        self.screen_on_target_state = True
         try:
             logging.info("enter deactivate")
             with self._lock:
                 logging.info("Action: Screen OFF")
-                self.target_state_is_on = False
                 self._set_power(False)
                 self._stop_browser_script()
                 self._notify_listeners()
@@ -116,22 +118,37 @@ class Screen:
             if not self._initialized:
                 continue
 
-            try:
-                res = subprocess.run(["wlr-randr"], env=self._get_env(), capture_output=True, text=True)
-                # Regex filtert gezielt nur den Block des physischen Monitors
-                match = re.search(r"HDMI-A-2.*?Enabled:\s+(yes|no)", res.stdout, re.DOTALL)
+            self._repair_browser()
+            sleep(5)
+            self._repair_screen_power()
 
-                if match:
-                    hw_is_on = (match.group(1) == "yes")
-                    if hw_is_on != self.target_state_is_on:
-                        logging.warning(f"Repair: HW ist {hw_is_on}, Soll ist {self.target_state_is_on}")
-                        self.activate(force=True) if self.target_state_is_on else self.deactivate()
-            except Exception as e:
-                logging.error(f"Fehler im Repair-Loop: {e}")
 
-            if self.target_state_is_on and not self._is_browser_running():
+    def _repair_browser(self):
+        try:
+            if self.screen_on_target_state and not self._is_browser_running():
                 logging.warning("Repair: Browser nicht aktiv, aber Bildschirm soll an sein.")
                 self._start_browser_script()
+        except Exception as e:
+            logging.error(f"Fehler im Browser-Repair: {e}")
+
+
+    def _is_screen_power_on(self) -> bool:
+        res = subprocess.run(["wlr-randr"], env=self._get_env(), capture_output=True, text=True)
+        # Regex filtert gezielt nur den Block des physischen Monitors
+        match = re.search(r"HDMI-A-2.*?Enabled:\s+(yes|no)", res.stdout, re.DOTALL)
+        if match:
+            return match.group(1) == "yes"
+        return False
+
+
+    def _repair_screen_power(self):
+        try:
+            hw_is_on = self._is_screen_power_on()
+            if hw_is_on != self.screen_on_target_state:
+                logging.warning(f"Repair: HW ist {hw_is_on}, Soll ist {self.screen_on_target_state}")
+                self._set_power(True) if self.screen_on_target_state else self._set_power(False)
+        except Exception as e:
+            logging.error(f"Fehler im Repair: {e}")
 
 
     def _init_sequence(self):
@@ -140,12 +157,13 @@ class Screen:
         logging.info("Init: Setze Basis-Zustand...")
 
         # Initial-Zustand erzwingen (idR. "AN" beim Booten)
-        self.activate(force=True)
+        self.activate()
 
         # Kleine Abklingzeit, dann Repair-Loop freigeben
         time.sleep(5)
         self._initialized = True
         logging.info("Init: System bereit, Repair-Loop aktiv.")
+
 
     def _start_browser_script(self):
         if self.start_script:
