@@ -3,7 +3,7 @@ import re
 import subprocess
 import logging
 import time
-from threading import Thread, Lock
+from threading import Thread, RLock
 from datetime import datetime, timedelta
 
 
@@ -11,7 +11,7 @@ class Screen:
 
     def __init__(self, start_script: str = None, stop_script: str = None):
         self._listeners = set()
-        self._lock = Lock()
+        self._lock = RLock()
         self._initialized = False  # Verhindert Repair-Eingriffe während des Bootens
 
         self.start_script = start_script.strip() if start_script else None
