@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 
 class Screen:
+
     def __init__(self, start_script: str = None, stop_script: str = None):
         self._listeners = set()
         self._lock = Lock()
@@ -46,33 +47,41 @@ class Screen:
         self.activate() if turn_on else self.deactivate()
 
     def activate(self, force: bool = False):
-        with self._lock:
-            hw_success = True
-            if force or not self.target_state_is_on:
-                logging.info("Action: Screen ON")
-                self.target_state_is_on = True
-                hw_success = self._set_power(True)
-                if hw_success:
-                    self._notify_listeners()
-                else:
-                    logging.error("Aborting browser start, hardware not ready.")
-                    return
+        try:
+            logging.info("enter activate, force=" + str(force))
+            with self._lock:
+                hw_success = True
+                if force or not self.target_state_is_on:
+                    logging.info("Action: Screen ON")
+                    self.target_state_is_on = True
+                    hw_success = self._set_power(True)
+                    if hw_success:
+                        self._notify_listeners()
+                    else:
+                        logging.error("Aborting browser start, hardware not ready.")
+                        return
 
-                    # Browser-Check (Watchdog)
-            if hw_success and not self._is_browser_running():
-                now = datetime.now()
-                if now > self.last_browser_attempt + timedelta(seconds=15):
-                    logging.info("Watchdog: Hardware OK. Starting browser...")
-                    self.last_browser_attempt = now
-                    self._start_browser_script()
+                        # Browser-Check (Watchdog)
+                if hw_success and not self._is_browser_running():
+                    now = datetime.now()
+                    if now > self.last_browser_attempt + timedelta(seconds=15):
+                        logging.info("Watchdog: Hardware OK. Starting browser...")
+                        self.last_browser_attempt = now
+                        self._start_browser_script()
+        finally:
+            logging.info("exit activate, force=" + str(force))
 
     def deactivate(self):
-        with self._lock:
-            logging.info("Action: Screen OFF")
-            self.target_state_is_on = False
-            self._set_power(False)
-            self._stop_browser_script()
-            self._notify_listeners()
+        try:
+            logging.info("enter deactivate")
+            with self._lock:
+                logging.info("Action: Screen OFF")
+                self.target_state_is_on = False
+                self._set_power(False)
+                self._stop_browser_script()
+                self._notify_listeners()
+        finally:
+            logging.info("exit deactivate")
 
     def _set_power(self, on: bool) -> bool:
         output = "HDMI-A-2"
@@ -115,10 +124,9 @@ class Screen:
 
                 if match:
                     hw_is_on = (match.group(1) == "yes")
-                    with self._lock:
-                        if hw_is_on != self.target_state_is_on:
-                            logging.warning(f"Repair: HW ist {hw_is_on}, Soll ist {self.target_state_is_on}")
-                            self.activate(force=True) if self.target_state_is_on else self.deactivate()
+                    if hw_is_on != self.target_state_is_on:
+                        logging.warning(f"Repair: HW ist {hw_is_on}, Soll ist {self.target_state_is_on}")
+                        self.activate(force=True) if self.target_state_is_on else self.deactivate()
             except Exception as e:
                 logging.error(f"Fehler im Repair-Loop: {e}")
 
