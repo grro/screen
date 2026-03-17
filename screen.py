@@ -78,6 +78,9 @@ class Screen:
                     self._notify_listeners()
                 else:
                     logging.error("hardware not ready.")
+            else:
+                # Monitor war schon an, wir benachrichtigen trotzdem über den erfolgreichen Status
+                self._notify_listeners()
 
 
     def deactivate(self):
@@ -94,24 +97,24 @@ class Screen:
         output = "HDMI-A-2"
         env = self._get_env()
 
-        # Schritt 1: Nur Einschalten (Handshake triggern)
         logging.info(f"Wecke Hardware {output}...")
-        # SNur Einschalten (Handshake triggern)
         subprocess.run(["wlr-randr", "--output", output, "--on"], env=env, capture_output=True)
 
-        # Schritt 2: Dem Monitor Zeit geben (EDID-Aushandlung)
+        # Erhöhe diese Zeit leicht, falls der Monitor sehr träge ist
         time.sleep(3)
 
-        # Schritt 3: Modus explizit setzen (Stabilisierung)
         res = subprocess.run(["wlr-randr", "--output", output, "--mode", "1280x800"],
                              env=env, capture_output=True, text=True)
 
         if res.returncode == 0:
             logging.info(f"Hardware {output} erfolgreich auf 1280x800 gesetzt.")
             return True
-        else:
-            logging.error(f"Fehler beim Setzen des Modus: {res.stderr.strip()}")
-            return False
+
+        # NEU: Der Fallback
+        logging.warning("Modus erzwingen fehlgeschlagen. Versuche Auto-On Fallback...")
+        res_fallback = subprocess.run(["wlr-randr", "--output", output, "--on"],
+                                      env=env, capture_output=True, text=True)
+        return res_fallback.returncode == 0
 
 
     def _set_power_off(self) -> bool:
@@ -163,7 +166,7 @@ class Screen:
 
     def _repair_loop(self):
         while True:
-            time.sleep(9)
+            time.sleep(13)
             if not self._initialized:
                 continue
 
@@ -176,7 +179,8 @@ class Screen:
         try:
             if self.screen_on_target_state and not self._is_browser_running():
                 logging.warning("Repair: Browser nicht aktiv, aber Bildschirm soll an sein.")
-                self._start_browser_script()
+                with self._lock:
+                    self._start_browser_script()
             else:
                 return False
         except Exception as e:
@@ -189,7 +193,9 @@ class Screen:
             hw_is_on = self._is_screen_power_on()
             if hw_is_on != self.screen_on_target_state:
                 logging.warning(f"Repair: HW ist {hw_is_on}, Soll ist {self.screen_on_target_state}")
-                self._set_power_on() if self.screen_on_target_state else self._set_power_off()
+
+                with self._lock:
+                    self._set_power_on() if self.screen_on_target_state else self._set_power_off()
             else:
                 return False
         except Exception as e:
