@@ -62,34 +62,41 @@ class Screen:
 
     def activate(self):
         self.screen_on_target_state = True
-        with self._lock:
 
-            # bowser
-            if not self._is_browser_running():
-                now = datetime.now()
-                if now > self.last_browser_attempt + timedelta(seconds=15):
-                    self.last_browser_attempt = now
-                    self._start_browser_script()
-                    sleep(2)  # Kurze Wartezeit, damit der Browser initialisiert wird
+        if not self._initialized:
+            logging.warning("Ignoriere activate(): System bootet noch (Warte auf Init-Sequenz).")
+        else:
+            with self._lock:
+                # bowser
+                if not self._is_browser_running():
+                    now = datetime.now()
+                    if now > self.last_browser_attempt + timedelta(seconds=15):
+                        self.last_browser_attempt = now
+                        self._start_browser_script()
+                        sleep(2)  # Kurze Wartezeit, damit der Browser initialisiert wird
 
-            # screen power
-            if not self._is_screen_power_on():
-                if self._set_power_on():
-                    self._notify_listeners()
+                # screen power
+                if not self._is_screen_power_on():
+                    if self._set_power_on():
+                        self._notify_listeners()
+                    else:
+                        logging.error("hardware not ready.")
                 else:
-                    logging.error("hardware not ready.")
-            else:
-                # Monitor war schon an, wir benachrichtigen trotzdem über den erfolgreichen Status
-                self._notify_listeners()
+                    # Monitor war schon an, wir benachrichtigen trotzdem über den erfolgreichen Status
+                    self._notify_listeners()
 
 
     def deactivate(self):
         self.screen_on_target_state = False
-        with self._lock:
-            logging.info("Action: Screen OFF")
-            self._set_power_off()
-            self._stop_browser_script()
-            self._notify_listeners()
+
+        if not self._initialized:
+            logging.warning("Ignoriere deactivate(): System bootet noch.")
+        else:
+            with self._lock:
+                logging.info("Action: Screen OFF")
+                self._set_power_off()
+                self._stop_browser_script()
+                self._notify_listeners()
 
 
 
@@ -100,7 +107,6 @@ class Screen:
         logging.info(f"Wecke Hardware {output}...")
         subprocess.run(["wlr-randr", "--output", output, "--on"], env=env, capture_output=True)
 
-        # Erhöhe diese Zeit leicht, falls der Monitor sehr träge ist
         time.sleep(3)
 
         res = subprocess.run(["wlr-randr", "--output", output, "--mode", "1280x800"],
@@ -110,11 +116,20 @@ class Screen:
             logging.info(f"Hardware {output} erfolgreich auf 1280x800 gesetzt.")
             return True
 
-        # NEU: Der Fallback
-        logging.warning("Modus erzwingen fehlgeschlagen. Versuche Auto-On Fallback...")
+        # Den echten Fehler mitloggen!
+        logging.warning(f"Modus erzwingen fehlgeschlagen: {res.stderr.strip()}")
+        logging.info("Versuche Auto-On Fallback...")
+
         res_fallback = subprocess.run(["wlr-randr", "--output", output, "--on"],
                                       env=env, capture_output=True, text=True)
-        return res_fallback.returncode == 0
+
+        if res_fallback.returncode == 0:
+            logging.info("Auto-On Fallback erfolgreich.")
+            return True
+
+        # Den Fehler des Fallbacks loggen
+        logging.error(f"Fallback ebenfalls fehlgeschlagen: {res_fallback.stderr.strip()}")
+        return False
 
 
     def _set_power_off(self) -> bool:
@@ -132,10 +147,11 @@ class Screen:
         time.sleep(45)
         logging.info("Init: Setze Basis-Zustand...")
 
+        # WICHTIG: Erst das Flag auf True setzen, damit activate() durchgelassen wird
+        self._initialized = True
         self.activate()
 
         time.sleep(5)
-        self._initialized = True
         logging.info("Init: System bereit, Repair-Loop aktiv.")
 
 
