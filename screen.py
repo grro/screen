@@ -99,16 +99,24 @@ class Screen:
                 self._notify_listeners()
 
 
-
     def _set_power_on(self) -> bool:
         output = "HDMI-A-2"
         env = self._get_env()
+        self.last_hw_action = datetime.now() # Zeitstempel für Sperre setzen
 
-        logging.info(f"Wecke Hardware {output}...")
+        logging.info(f"Hardware-Reset-Sequenz für {output}...")
+
+        # 1. AUS-Befehl vorschalten: Bereinigt alte Buffer im Grafiktreiber
+        subprocess.run(["wlr-randr", "--output", output, "--off"], env=env, capture_output=True)
+        time.sleep(1)
+
+        # 2. Weckruf senden
         subprocess.run(["wlr-randr", "--output", output, "--on"], env=env, capture_output=True)
 
-        time.sleep(3)
+        # 3. Längere Pause (5s): Gibt dem Monitor Zeit für den EDID-Handshake
+        time.sleep(5)
 
+        # 4. Modus erzwingen
         res = subprocess.run(["wlr-randr", "--output", output, "--mode", "1280x800"],
                              env=env, capture_output=True, text=True)
 
@@ -116,20 +124,10 @@ class Screen:
             logging.info(f"Hardware {output} erfolgreich auf 1280x800 gesetzt.")
             return True
 
-        # Den echten Fehler mitloggen!
-        logging.warning(f"Modus erzwingen fehlgeschlagen: {res.stderr.strip()}")
-        logging.info("Versuche Auto-On Fallback...")
-
-        res_fallback = subprocess.run(["wlr-randr", "--output", output, "--on"],
-                                      env=env, capture_output=True, text=True)
-
-        if res_fallback.returncode == 0:
-            logging.info("Auto-On Fallback erfolgreich.")
-            return True
-
-        # Den Fehler des Fallbacks loggen
-        logging.error(f"Fallback ebenfalls fehlgeschlagen: {res_fallback.stderr.strip()}")
-        return False
+        # 5. Letzter Fallback: Nur Einschalten ohne Modus-Zwang
+        logging.warning(f"Modus-Fehler: {res.stderr.strip()}. Versuche Auto-On...")
+        res_fb = subprocess.run(["wlr-randr", "--output", output, "--on"], env=env, capture_output=True)
+        return res_fb.returncode == 0
 
 
     def _set_power_off(self) -> bool:
@@ -182,8 +180,14 @@ class Screen:
 
     def _repair_loop(self):
         while True:
-            time.sleep(13)
+            time.sleep(20)
+
             if not self._initialized:
+                continue
+
+            # OPTIMIERUNG: Wenn gerade erst geschaltet wurde, 15s lang NICHTS tun.
+            # Das verhindert, dass der Loop eine laufende Initialisierung stört.
+            if datetime.now() < self.last_hw_action + timedelta(seconds=15):
                 continue
 
             if self._repair_browser():
