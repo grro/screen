@@ -22,6 +22,8 @@ class Screen:
         self.browser_active = False
         self.last_browser_attempt = datetime.now() - timedelta(seconds=60)
 
+        self.last_hw_action = datetime.now()
+
         # Threads starten
         Thread(target=self._init_sequence, daemon=True).start()
         Thread(target=self._repair_loop, daemon=True).start()
@@ -66,20 +68,20 @@ class Screen:
             return
 
         with self._lock:
-            # 1. Browser starten
+            # 1. Browser prüfen/starten
             if not self._is_browser_running():
                 self._start_browser_script()
-                # Erhöhe die Wartezeit: Chromium braucht Zeit,
-                # um den DRM-Zugriff zu initialisieren/freizugeben.
+                # Chromium Zeit geben, DRM-Ressourcen zu sortieren
                 sleep(5)
 
-                # 2. Hardware erst danach wecken
+            # 2. Hardware wecken (JETZT KORREKT AUSGEHÄNGT)
             if not self._is_screen_power_on():
-                # Hier liegt die Reset-Sequenz
-                if self._set_power_on():
-                    self._notify_listeners()
-                else:
-                    logging.error("hardware not ready.")
+                # _set_power_on liefert durch deinen Rettungsanker nun True
+                self._set_power_on()
+                self._notify_listeners()
+            else:
+                # Falls Monitor schon an war, Listener trotzdem triggern
+                self._notify_listeners()
 
 
     def deactivate(self):
