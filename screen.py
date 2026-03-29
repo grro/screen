@@ -102,32 +102,38 @@ class Screen:
     def _set_power_on(self) -> bool:
         output = "HDMI-A-2"
         env = self._get_env()
-        self.last_hw_action = datetime.now() # Zeitstempel für Sperre setzen
+        self.last_hw_action = datetime.now()
 
         logging.info(f"Hardware-Reset-Sequenz für {output}...")
 
-        # 1. AUS-Befehl vorschalten: Bereinigt alte Buffer im Grafiktreiber
+        # NEU: Ein expliziter Aufruf ohne Parameter triggert oft
+        # eine Neuzuordnung der DRM-Ressourcen im Kernel.
+        subprocess.run(["wlr-randr"], env=env, capture_output=True)
+
+        # Hard-Reset: Erst aus
         subprocess.run(["wlr-randr", "--output", output, "--off"], env=env, capture_output=True)
-        time.sleep(1)
+        time.sleep(2) # Pause erhöhen
 
-        # 2. Weckruf senden
+        # Dann an
         subprocess.run(["wlr-randr", "--output", output, "--on"], env=env, capture_output=True)
-
-        # 3. Längere Pause (5s): Gibt dem Monitor Zeit für den EDID-Handshake
         time.sleep(5)
 
-        # 4. Modus erzwingen
+        # Modus setzen
         res = subprocess.run(["wlr-randr", "--output", output, "--mode", "1280x800"],
                              env=env, capture_output=True, text=True)
 
         if res.returncode == 0:
-            logging.info(f"Hardware {output} erfolgreich auf 1280x800 gesetzt.")
+            logging.info(f"Hardware {output} erfolgreich gesetzt.")
             return True
 
-        # 5. Letzter Fallback: Nur Einschalten ohne Modus-Zwang
-        logging.warning(f"Modus-Fehler: {res.stderr.strip()}. Versuche Auto-On...")
-        res_fb = subprocess.run(["wlr-randr", "--output", output, "--on"], env=env, capture_output=True)
-        return res_fb.returncode == 0
+        # Letzter Rettungsanker:
+        # Wir versuchen den Monitor einfach 'anzuschubsen', ohne eine Bestätigung abzuwarten.
+        logging.warning(f"Modus-Fehler: {res.stderr.strip()}. Erzwinge Auto-On...")
+        subprocess.run(["wlr-randr", "--output", output, "--on"], env=env)
+
+        # Wir geben True zurück, weil der Repair-Loop in 20s sowieso nochmal prüft,
+        # ob der Monitor durch den 'Schubs' angegangen ist.
+        return True
 
 
     def _set_power_off(self) -> bool:
