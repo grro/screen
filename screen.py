@@ -11,7 +11,7 @@ class Screen:
     def __init__(self, start_script: str = None, stop_script: str = None):
         self._listeners = set()
         self._lock = RLock()
-        self._initialized = False
+        self._initialized = False  # Verhindert Eingriffe während der 45s Boot-Phase
 
         self.start_script = start_script.strip() if start_script else None
         self.stop_script = stop_script.strip() if stop_script else None
@@ -19,28 +19,17 @@ class Screen:
         self.screen_on_target_state = False
         self.browser_active = False
         self.last_browser_attempt = datetime.now() - timedelta(seconds=60)
-        self.last_hw_action = datetime.now()
+        self.last_hw_action = datetime.now() # Sperre für den Repair-Loop
 
-        # Threads starten
+        # Hintergrund-Überwachung starten
         Thread(target=self._init_sequence, daemon=True).start()
         Thread(target=self._repair_loop, daemon=True).start()
 
     def _get_env(self):
-        """Sucht dynamisch nach dem aktuellsten Wayland-Socket des Hosts."""
+        """Erstellt die Umgebungsvariablen für Wayland-Zugriff."""
         env = os.environ.copy()
-        runtime_dir = "/run/user/1000"
-        env["XDG_RUNTIME_DIR"] = runtime_dir
-
-        try:
-            if os.path.exists(runtime_dir):
-                sockets = [f for f in os.listdir(runtime_dir) if f.startswith("wayland-")]
-                if sockets:
-                    # Sortierung nach Zeitstempel (neueste zuerst)
-                    sockets.sort(key=lambda x: os.path.getmtime(os.path.join(runtime_dir, x)), reverse=True)
-                    env["WAYLAND_DISPLAY"] = sockets[0]
-        except Exception as e:
-            logging.error(f"Fehler bei Wayland-Socket-Suche: {e}")
-
+        env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+        env["WAYLAND_DISPLAY"] = "wayland-1" if os.path.exists("/run/user/1000/wayland-1") else "wayland-0"
         return env
 
     @property
@@ -48,49 +37,57 @@ class Screen:
         return self.screen_on_target_state
 
     def _is_screen_power_on(self) -> bool:
-        """Prüft den Hardware-Status via wlr-randr."""
+        """Prüft den echten Hardware-Status via wlr-randr."""
         try:
             res = subprocess.run(["wlr-randr"], env=self._get_env(), capture_output=True, text=True, timeout=5)
             match = re.search(r"HDMI-A-2.*?Enabled:\s+(yes|no)", res.stdout, re.DOTALL)
             if match:
                 return match.group(1) == "yes"
-        except Exception:
-            pass
+        except Exception as e:
+            logging.error(f"Fehler beim Status-Check: {e}")
         return False
 
     def _is_browser_running(self) -> bool:
-        """Prüft, ob der Chromium-Prozess aktiv ist."""
+        """Prüft, ob Chromium-Prozesse existieren."""
         try:
             return subprocess.run(["pgrep", "chromium"], capture_output=True).returncode == 0
         except Exception:
             return False
 
     def set_screen(self, turn_on: bool):
-        """Manuelle Steuerung von extern."""
+        """Manuelle Steuerung (z.B. via API)."""
         self.activate() if turn_on else self.deactivate()
 
     def activate(self):
-        """Startet Browser und weckt die Hardware."""
+        """Aktiviert Browser und Hardware in der richtigen Reihenfolge (Vorhang-Effekt)."""
         self.screen_on_target_state = True
+
         if not self._initialized:
+            logging.warning("Ignoriere activate(): System bootet noch (Warte auf Init-Sequenz).")
             return
 
         with self._lock:
-            # 1. Browser-Check: Falls aus, starten und 5s warten
+            # 1. BROWSER: Starten, während das Bild noch aus ist (verhindert OS-Sichtbarkeit)
             if not self._is_browser_running():
-                self._start_browser_script()
-                sleep(5)
+                now = datetime.now()
+                if now > self.last_browser_attempt + timedelta(seconds=15):
+                    self.last_browser_attempt = now
+                    self._start_browser_script()
+                    sleep(3)  # Zeit für Chromium zum Rendern
 
-            # 2. Hardware-Check (Muss immer prüfen, unabhängig vom Browser-Start)
+            # 2. HARDWARE: Jetzt erst das Licht an
             if not self._is_screen_power_on():
-                self._set_power_on()
-                self._notify_listeners()
+                if self._set_power_on():
+                    self._notify_listeners()
+                else:
+                    logging.error("Hardware konnte nicht aktiviert werden.")
             else:
                 self._notify_listeners()
 
     def deactivate(self):
-        """Schaltet Hardware aus und stoppt Browser."""
+        """Schaltet Hardware aus und stoppt den Browser."""
         self.screen_on_target_state = False
+
         if not self._initialized:
             logging.warning("Ignoriere deactivate(): System bootet noch.")
             return
@@ -102,58 +99,51 @@ class Screen:
             self._notify_listeners()
 
     def _set_power_on(self) -> bool:
-        """Erzwingt das Einschalten auf Kernel-Ebene und via wlr-randr."""
+        """Die robuste Einschalt-Sequenz mit Hard-Reset und Fallback."""
         output = "HDMI-A-2"
         env = self._get_env()
         self.last_hw_action = datetime.now()
 
-        logging.info(f"Hardware-Reset-Sequenz für {output} ({env.get('WAYLAND_DISPLAY')})...")
+        logging.info(f"Hardware-Reset-Sequenz für {output}...")
 
-        # --- KERNEL-FORCE TRIGGER (Hotplug-Simulation über 'status') ---
+        # Kernel-Trigger (Versuch den Port direkt aufzuwecken)
         try:
-            drm_path = "/sys/class/drm"
-            if os.path.exists(drm_path):
-                for card in os.listdir(drm_path):
-                    if "HDMI-A-2" in card:
-                        # WICHTIG: Die Datei 'status' ist beschreibbar, 'enabled' ist Read-Only!
-                        force_path = os.path.join(drm_path, card, "status")
-                        if os.path.exists(force_path):
-                            # 'detect' erzwingt einen Rescan der Hardware (löst den DRM-Lock)
-                            with open(force_path, "w") as f:
-                                f.write("detect")
-                            logging.info(f"Kernel-Force-Trigger (detect) erfolgreich an {force_path} gesendet.")
-                            time.sleep(1) # Dem Kernel kurz Zeit für den Handshake geben
-                            break
+            kernel_path = f"/sys/class/drm/card1-{output}/enabled"
+            if os.path.exists(kernel_path):
+                with open(kernel_path, 'w') as f:
+                    f.write('on')
         except Exception as e:
-            logging.error(f"Physischer Kernel-Trigger fehlgeschlagen: {e}")
+            logging.debug(f"Kernel-Direktzugriff (sysfs) nicht möglich: {e}")
 
-        # --- WLR-RANDR SEQUENZ ---
-        # Ressourcen-Refresh (triggert DRM-Master Erkennung nach dem Hotplug)
-        subprocess.run(["wlr-randr"], env=env, capture_output=True)
+        # Schritt 1: Reset (Zustand im Grafikstack klären)
+        subprocess.run(["wlr-randr", "--output", output, "--off"], env=env, capture_output=True)
+        time.sleep(1)
 
-        # Erst explizit an
+        # Schritt 2: Weckruf
         subprocess.run(["wlr-randr", "--output", output, "--on"], env=env, capture_output=True)
-        time.sleep(3)
+        time.sleep(5) # Wichtig: Monitor Zeit für den Handshake geben
 
-        # Dann Auflösung erzwingen
-        try:
-            res = subprocess.run(
-                ["wlr-randr", "--output", output, "--mode", "1280x800"],
-                env=env, capture_output=True, text=True, timeout=10
-            )
-            if res.returncode == 0:
-                logging.info(f"Hardware {output} erfolgreich gesetzt.")
-                return True
-        except Exception as e:
-            logging.error(f"Modus-Fehler: {e}")
+        # Schritt 3: Modus erzwingen
+        res = subprocess.run(["wlr-randr", "--output", output, "--mode", "1280x800"],
+                             env=env, capture_output=True, text=True)
 
-        # Rettungsanker
-        logging.warning("Erzwinge Auto-On Fallback...")
-        subprocess.run(["wlr-randr", "--output", output, "--on"], env=env)
-        return True
+        if res.returncode == 0:
+            logging.info(f"Hardware {output} erfolgreich auf 1280x800 gesetzt.")
+            return True
+
+        # SCHRITT 4: Fallback (Wenn Modus fehlschlägt)
+        logging.warning(f"Modus-Fehler: {res.stderr.strip()}. Versuche Auto-On Fallback...")
+        res_fb = subprocess.run(["wlr-randr", "--output", output, "--on"], env=env, capture_output=True, text=True)
+
+        if res_fb.returncode == 0:
+            logging.info("Auto-On Fallback erfolgreich.")
+            return True
+
+        logging.error(f"Hardware-Fehler: {res_fb.stderr.strip()}")
+        return False
 
     def _set_power_off(self) -> bool:
-        """Schaltet den Monitor aus."""
+        """Schaltet den Ausgang sauber ab."""
         output = "HDMI-A-2"
         env = self._get_env()
         self.last_hw_action = datetime.now()
@@ -164,11 +154,14 @@ class Screen:
         return res.returncode == 0
 
     def _init_sequence(self):
-        """Boot-Wartezeit für stabilen Grafikstack."""
+        """Wartet beim Booten auf die Verfügbarkeit des Grafikstacks."""
         time.sleep(45)
         logging.info("Init: Setze Basis-Zustand...")
+
+        # Flag auf True setzen, damit der erste activate() durchkommt
         self._initialized = True
         self.activate()
+
         time.sleep(5)
         logging.info("Init: System bereit, Repair-Loop aktiv.")
 
@@ -197,26 +190,28 @@ class Screen:
         [l() for l in self._listeners if callable(l)]
 
     def _repair_loop(self):
-        """Wächter-Loop: Prüft alle 25s auf Soll/Ist Abweichungen."""
+        """Überwacht permanent den Soll-Zustand von Browser und Hardware."""
         while True:
-            time.sleep(25)
+            time.sleep(20) # Beruhigter Intervall für Langzeit-Stabilität
+
             if not self._initialized:
                 continue
 
-            # Anti-Racing: Pause nach letzter Aktion
-            if datetime.now() < self.last_hw_action + timedelta(seconds=20):
+            # Gnadenfrist: Nach einer HW-Aktion 15s lang nicht 'reinpfuschen'
+            if datetime.now() < self.last_hw_action + timedelta(seconds=15):
                 continue
 
-            # Reparatur-Kette
+            # Browser reparieren (wenn nötig)
             if self._repair_browser():
-                sleep(5)
+                sleep(3) # Zeit geben vor dem HW-Check
 
+            # Hardware reparieren (wenn nötig)
             self._repair_screen_power()
 
     def _repair_browser(self) -> bool:
         try:
             if self.screen_on_target_state and not self._is_browser_running():
-                logging.warning("Repair: Browser tot. Neustart...")
+                logging.warning("Repair: Browser tot. Reanimierung...")
                 with self._lock:
                     self._start_browser_script()
                 return True
@@ -228,7 +223,7 @@ class Screen:
         try:
             hw_is_on = self._is_screen_power_on()
             if hw_is_on != self.screen_on_target_state:
-                logging.warning(f"Repair: HW-Abweichung! Soll: {self.screen_on_target_state}, Ist: {hw_is_on}")
+                logging.warning(f"Repair: HW-Status ({hw_is_on}) entspricht nicht Soll ({self.screen_on_target_state})")
                 with self._lock:
                     if self.screen_on_target_state:
                         self._set_power_on()
