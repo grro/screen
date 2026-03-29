@@ -7,6 +7,7 @@ from threading import Thread, RLock
 from datetime import datetime, timedelta
 from time import sleep
 
+
 class Screen:
     def __init__(self, start_script: str = None, stop_script: str = None):
         self._listeners = set()
@@ -192,7 +193,7 @@ class Screen:
         self._listeners.add(listener)
 
     def _notify_listeners(self):
-        [l() for l in self._listeners if callable(l)]
+        [listener() for listener in self._listeners if callable(listener)]
 
     def _repair_loop(self):
         """Wächter-Loop: Prüft alle 25s auf Soll/Ist Abweichungen."""

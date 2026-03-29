@@ -4,8 +4,6 @@ from threading import Thread
 import logging
 
 
-
-
 class MCPServer:
 
     def __init__(self, name: str, port: int):
@@ -31,5 +29,3 @@ class MCPServer:
         logging.info("MCP Server stopped")
 
 # claude mcp add --transport sse energyTest http://192.168.1.99:9843/sse
-
-

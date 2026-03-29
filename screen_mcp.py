@@ -2,7 +2,6 @@ from mcp_server import MCPServer
 from screen import Screen
 
 
-
 class ScreenMCPServer(MCPServer):
 
     def __init__(self, screen: Screen, name: str, port: int):
@@ -23,7 +22,6 @@ class ScreenMCPServer(MCPServer):
             except Exception as e:
                 return f"Error retrieving screen state: {str(e)}"
 
-
         @self.mcp.tool()
         def set_screen_power(on: bool) -> str:
             """
@@ -36,11 +34,10 @@ class ScreenMCPServer(MCPServer):
                 str: A confirmation message indicating the new state of the screen.
             """
             try:
-                # Using self.screen to ensure we reference the instance variable
                 if on:
-                    self.screen.activate_screen()
+                    self.screen.activate()
                 else:
-                    self.screen.deactivate_screen()
+                    self.screen.deactivate()
 
                 state_str = "on" if on else "off"
                 return f"Screen successfully turned {state_str}."
@@ -48,6 +45,4 @@ class ScreenMCPServer(MCPServer):
                 return f"Failed to change screen power state: {str(e)}"
 
 
-
 # npx @modelcontextprotocol/inspector
-

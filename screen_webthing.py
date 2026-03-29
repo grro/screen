@@ -37,7 +37,6 @@ class ScreenThing(Thing):
                          'readOnly': False,
                      }))
 
-
     def on_value_changed(self):
         self.ioloop.add_callback(self._on_value_changed)
 
@@ -65,7 +64,11 @@ def run_server(port: int, name: str, start_script_path: str, stop_script_path: s
 
 
 if __name__ == '__main__':
-    logging.basicConfig(format='%(asctime)s %(name)-20s: %(levelname)-8s %(message)s', level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S')
+    logging.basicConfig(
+        format='%(asctime)s %(name)-20s: %(levelname)-8s %(message)s',
+        level=logging.INFO,
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
     logging.getLogger('tornado.access').setLevel(logging.ERROR)
     logging.getLogger('urllib3.connectionpool').setLevel(logging.WARNING)
     run_server(int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4])
