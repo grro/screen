@@ -28,13 +28,18 @@ class Screen:
         Thread(target=self._init_sequence, daemon=True).start()
         Thread(target=self._repair_loop, daemon=True).start()
 
-
     def _get_env(self):
         env = os.environ.copy()
-        env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-        env["WAYLAND_DISPLAY"] = "wayland-1" if os.path.exists("/run/user/1000/wayland-1") else "wayland-0"
-        return env
+        runtime_dir = "/run/user/1000"
+        env["XDG_RUNTIME_DIR"] = runtime_dir
 
+        # Suche aktiv nach dem existierenden Socket
+        sockets = [f for f in os.listdir(runtime_dir) if f.startswith("wayland-")]
+        if sockets:
+            # Sortiere nach Zeitstempel, nimm den neuesten
+            sockets.sort(key=lambda x: os.path.getmtime(os.path.join(runtime_dir, x)), reverse=True)
+            env["WAYLAND_DISPLAY"] = sockets[0]
+        return env
 
     @property
     def is_screen_on(self) -> bool:
