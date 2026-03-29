@@ -109,24 +109,26 @@ class Screen:
 
         logging.info(f"Hardware-Reset-Sequenz für {output} ({env.get('WAYLAND_DISPLAY')})...")
 
-        # --- KERNEL-FORCE TRIGGER (Nativ Python gegen Permission Denied) ---
+        # --- KERNEL-FORCE TRIGGER (Hotplug-Simulation über 'status') ---
         try:
             drm_path = "/sys/class/drm"
             if os.path.exists(drm_path):
                 for card in os.listdir(drm_path):
                     if "HDMI-A-2" in card:
-                        force_path = os.path.join(drm_path, card, "enabled")
+                        # WICHTIG: Die Datei 'status' ist beschreibbar, 'enabled' ist Read-Only!
+                        force_path = os.path.join(drm_path, card, "status")
                         if os.path.exists(force_path):
-                            # Direktes Schreiben umgeht Shell-Rechteprobleme
+                            # 'detect' erzwingt einen Rescan der Hardware (löst den DRM-Lock)
                             with open(force_path, "w") as f:
-                                f.write("on")
-                            logging.info(f"Kernel-Force-Trigger erfolgreich an {force_path} gesendet.")
+                                f.write("detect")
+                            logging.info(f"Kernel-Force-Trigger (detect) erfolgreich an {force_path} gesendet.")
+                            time.sleep(1) # Dem Kernel kurz Zeit für den Handshake geben
                             break
         except Exception as e:
             logging.error(f"Physischer Kernel-Trigger fehlgeschlagen: {e}")
 
         # --- WLR-RANDR SEQUENZ ---
-        # Ressourcen-Refresh (triggert DRM-Master Erkennung)
+        # Ressourcen-Refresh (triggert DRM-Master Erkennung nach dem Hotplug)
         subprocess.run(["wlr-randr"], env=env, capture_output=True)
 
         # Erst explizit an

@@ -22,9 +22,9 @@ class SimpleRequestHandler(BaseHTTPRequestHandler):
             on_state = val in ['true', '1', 'on']
             try:
                 if on_state:
-                    screen.activate_screen()
+                    screen.activate()
                 else:
-                    screen.deactivate_screen()
+                    screen.deactivate()
                 self._send_json(200, {"status": "success", "screen_on": screen.is_screen_on})
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
@@ -38,7 +38,7 @@ class SimpleRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data).encode("utf-8"))
 
 class ScreenWebServer:
-    def __init__(self, screen: Screen,  host='0000', port=8000):
+    def __init__(self, screen: Screen,  host='0.0.0.0', port=8000):
         self.host = host
         self.port = port
         self.address = (self.host, self.port)
