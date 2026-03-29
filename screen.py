@@ -62,28 +62,24 @@ class Screen:
 
     def activate(self):
         self.screen_on_target_state = True
-
         if not self._initialized:
-            logging.warning("Ignoriere activate(): System bootet noch (Warte auf Init-Sequenz).")
-        else:
-            with self._lock:
-                # bowser
-                if not self._is_browser_running():
-                    now = datetime.now()
-                    if now > self.last_browser_attempt + timedelta(seconds=15):
-                        self.last_browser_attempt = now
-                        self._start_browser_script()
-                        sleep(2)  # Kurze Wartezeit, damit der Browser initialisiert wird
+            return
 
-                # screen power
-                if not self._is_screen_power_on():
-                    if self._set_power_on():
-                        self._notify_listeners()
-                    else:
-                        logging.error("hardware not ready.")
-                else:
-                    # Monitor war schon an, wir benachrichtigen trotzdem über den erfolgreichen Status
+        with self._lock:
+            # 1. Browser starten
+            if not self._is_browser_running():
+                self._start_browser_script()
+                # Erhöhe die Wartezeit: Chromium braucht Zeit,
+                # um den DRM-Zugriff zu initialisieren/freizugeben.
+                sleep(5)
+
+                # 2. Hardware erst danach wecken
+            if not self._is_screen_power_on():
+                # Hier liegt die Reset-Sequenz
+                if self._set_power_on():
                     self._notify_listeners()
+                else:
+                    logging.error("hardware not ready.")
 
 
     def deactivate(self):
